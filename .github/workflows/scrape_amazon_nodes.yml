@@ -1,0 +1,133 @@
+name: Amazon Node Scraper - Account 1 (TEST)
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max products per node'
+        required: false
+        default: '99999'
+
+jobs:
+  scrape:
+    name: "Node ${{ matrix.node_id }} (${{ matrix.node_name }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          # TEST: 5 nodes من نتيجة Phase 1 (depth=2 run)
+          - { node_id: "21826026031",  node_name: "Perfumes" }
+          - { node_id: "18022560031",  node_name: "Video Games" }
+          - { node_id: "21863792031",  node_name: "Appliances" }
+          - { node_id: "18022503031",  node_name: "Toys & Games" }
+          - { node_id: "21832868031",  node_name: "Mobile Phones" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install curl-cffi scrapy
+
+      - name: Stagger start
+        run: sleep $((RANDOM % 20 + 5))
+
+      - name: Scrape node ${{ matrix.node_id }}
+        run: |
+          python amazon_node_spider.py \
+            --node_id   ${{ matrix.node_id }} \
+            --node_name "${{ matrix.node_name }}" \
+            --limit     ${{ github.event.inputs.limit || '99999' }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: "node-${{ matrix.node_id }}"
+          path: "node_${{ matrix.node_id }}.json"
+
+  export:
+    name: Merge & Export CSV
+    runs-on: ubuntu-latest
+    needs: scrape
+    if: always()
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download all node artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: node-*
+          merge-multiple: true
+
+      - name: Merge JSON → CSV + summary
+        run: |
+          python - <<'EOF'
+          import json, glob, csv, sys
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+          merged = []
+          for fname in sorted(glob.glob("node_*.json")):
+              try:
+                  data = json.load(open(fname, encoding="utf-8"))
+                  merged.extend(data)
+                  print(f"{fname}: {len(data)} products")
+              except Exception as e:
+                  print(f"{fname}: ERROR - {e}")
+
+          # Deduplicate by ASIN globally
+          seen = set()
+          unique = []
+          for p in merged:
+              if p["asin"] not in seen:
+                  seen.add(p["asin"])
+                  unique.append(p)
+
+          print(f"\nTotal raw : {len(merged)}")
+          print(f"Unique    : {len(unique)}  (after global ASIN dedup)")
+
+          columns = [
+              "platform", "asin", "title", "brand", "category",
+              "current_price", "original_price", "discount",
+              "rating", "reviews_count",
+              "prime_eligible", "amazon_choice", "sponsored",
+              "main_image", "product_url", "scraped_at",
+          ]
+          with open("amazon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
+              writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+              writer.writeheader()
+              writer.writerows(unique)
+          print("Saved: amazon_products.csv")
+          EOF
+
+      - name: Upload final CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-products-nodes
+          path: amazon_products.csv
+
+      - name: Push to master repo
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+        run: |
+          git clone https://${MASTER_TOKEN}@github.com/mostafa11100/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1
+          cp amazon_products.csv master_repo/data/account1/amazon_products_nodes.csv 2>/dev/null || true
+          cd master_repo
+          git config user.email "scraper-bot@github.com"
+          git config user.name "Scraper Bot"
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "Node scraper test from account1 - $(date -u +%Y-%m-%d)"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
+            done
+          fi
