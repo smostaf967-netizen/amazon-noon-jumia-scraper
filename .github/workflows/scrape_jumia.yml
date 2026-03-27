@@ -34,7 +34,7 @@ jobs:
           MATRIX=$(python - <<'EOF'
           import json, sys
           cats = json.load(open("categories.json", encoding="utf-8"))
-          subset = cats[0:8]
+          subset = cats[0:6]
           matrix = {
               "include": [
                   {"name": c["name"], "url": c["url"], "idx": i}
