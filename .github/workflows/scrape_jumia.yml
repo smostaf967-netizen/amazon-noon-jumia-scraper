@@ -1,0 +1,140 @@
+name: Jumia Scraper - Account 1 (Categories 0-7)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 5:00 AM Egypt time
+  workflow_dispatch:
+
+jobs:
+  discover:
+    name: Discover Categories
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm
+
+      - name: Discover categories
+        id: set-matrix
+        run: |
+          python jumia_spider.py --mode discover
+          MATRIX=$(python - <<'EOF'
+          import json, sys
+          cats = json.load(open("categories.json", encoding="utf-8"))
+          subset = cats[0:8]
+          matrix = {
+              "include": [
+                  {"name": c["name"], "url": c["url"], "idx": i}
+                  for i, c in enumerate(subset)
+              ]
+          }
+          print(json.dumps(matrix))
+          EOF
+          )
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+      - name: Upload categories artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: categories
+          path: categories.json
+
+  scrape:
+    name: "Scrape: ${{ matrix.name }}"
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 20
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm playwright playwright-stealth
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: "Scrape ${{ matrix.name }}"
+        run: |
+          python jumia_spider.py \
+            --mode scrape \
+            --category-name "${{ matrix.name }}" \
+            --category-url  "${{ matrix.url }}" \
+            --group-index   ${{ matrix.idx }} \
+            --limit 5000 \
+            --deep
+        timeout-minutes: 90
+
+      - name: Upload products artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "jumia-products-${{ matrix.idx }}"
+          path: "products_${{ matrix.idx }}.json"
+
+  export:
+    name: Export CSV
+    needs: scrape
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm
+
+      - name: Download all product artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: jumia-products-*
+          merge-multiple: true
+
+      - name: Merge JSON -> CSV
+        run: python jumia_spider.py --mode export
+
+      - name: Rename output CSV
+        run: |
+          find output/ -name "jumia_products_*.csv" | head -1 | xargs -I{} cp {} jumia_products.csv || true
+
+      - name: Push to master repo
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+        run: |
+          git clone https://${MASTER_TOKEN}@github.com/mostafa11100/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1
+          cp jumia_products.csv master_repo/data/account1/ 2>/dev/null || true
+          cd master_repo
+          git config user.email "scraper-bot@github.com"
+          git config user.name "Scraper Bot"
+          git add data/
+          if ! git diff --staged --quiet; then
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
+            done
+          fi

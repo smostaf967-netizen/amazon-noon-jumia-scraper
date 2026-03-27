@@ -1,0 +1,111 @@
+name: Amazon Scraper - Account 1 (Groups 0-6)
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 3:00 AM Egypt time
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'Manual run'
+
+jobs:
+  scrape:
+    name: Scrape Group ${{ matrix.group_index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        group_index: [0,1,2,3,4,5,6]
+      fail-fast: false
+      max-parallel: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install curl-cffi scrapy
+
+      - name: Stagger start
+        run: sleep $((RANDOM % 60 + 30))
+
+      - name: Run spider (Group ${{ matrix.group_index }})
+        run: python amazon_spider.py --group_index ${{ matrix.group_index }} --limit 2000
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-products-${{ matrix.group_index }}
+          path: products_${{ matrix.group_index }}.json
+
+  export:
+    name: Merge & Export CSV
+    runs-on: ubuntu-latest
+    needs: scrape
+    if: always()
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amazon-products-*
+          merge-multiple: true
+
+      - name: Merge JSON -> CSV
+        run: |
+          python - <<'EOF'
+          import json, glob, csv
+
+          merged = []
+          for fname in sorted(glob.glob("products_*.json")):
+              with open(fname, encoding="utf-8") as f:
+                  try:
+                      data = json.load(f)
+                      merged.extend(data)
+                      print(f"{fname}: {len(data)} products")
+                  except Exception as e:
+                      print(f"{fname}: ERROR - {e}")
+
+          print(f"\nTotal: {len(merged)} products")
+
+          columns = [
+              "platform", "asin", "title", "brand", "category",
+              "current_price", "original_price", "discount",
+              "rating", "reviews_count",
+              "prime_eligible", "amazon_choice", "sponsored",
+              "main_image", "product_url", "scraped_at",
+          ]
+
+          with open("amazon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
+              writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+              writer.writeheader()
+              writer.writerows(merged)
+
+          print("CSV saved: amazon_products.csv")
+          EOF
+
+      - name: Push to master repo
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+        run: |
+          git clone https://${MASTER_TOKEN}@github.com/mostafa11100/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1
+          cp amazon_products.csv master_repo/data/account1/ 2>/dev/null || true
+          cd master_repo
+          git config user.email "scraper-bot@github.com"
+          git config user.name "Scraper Bot"
+          git add data/
+          if ! git diff --staged --quiet; then
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
+            done
+          fi
