@@ -56,6 +56,7 @@ jobs:
     name: "Scrape: ${{ matrix.name }}"
     needs: discover
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       max-parallel: 20
       fail-fast: false
@@ -81,6 +82,7 @@ jobs:
         run: playwright install chromium --with-deps
 
       - name: "Scrape ${{ matrix.name }}"
+        id: scrape
         run: |
           python jumia_spider.py \
             --mode scrape \
@@ -91,12 +93,19 @@ jobs:
             --deep
         timeout-minutes: 180
 
+      - name: Log blocked category
+        if: failure()
+        run: |
+          echo "${{ matrix.name }} | ${{ matrix.url }} | blocked/failed" >> blocked.log
+
       - name: Upload products artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: "jumia-products-${{ matrix.idx }}"
-          path: "products_${{ matrix.idx }}.json"
+          path: |
+            products_${{ matrix.idx }}.json
+            blocked.log
 
   export:
     name: Export CSV
