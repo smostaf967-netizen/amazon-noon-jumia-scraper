@@ -15,6 +15,14 @@ from datetime import datetime
 
 PRODUCT_LIMIT = 5000  # per group — 43 groups × 5000 = up to 215,000 products
 
+# Sort orders — كل sort بيجيب منتجات مختلفة
+NOON_SORT_ORDERS = [
+    ("popularity",  ""),                          # default
+    ("newest",      "?sortBy=new_arrivals"),
+    ("price_low",   "?sortBy=price_low"),
+    ("price_high",  "?sortBy=price_high"),
+]
+
 # ── 43 groups covering all major Noon Egypt categories ────────────────────────
 CATEGORY_GROUPS = {
     # Electronics
@@ -253,34 +261,43 @@ def scrape_group(group_index, limit=PRODUCT_LIMIT):
         except Exception as e:
             print(f"  Warmup failed: {e} (continuing)")
 
-        # Paginate through category pages
-        for page_num in range(1, 200):
+        # Loop through sort orders
+        for sort_name, sort_suffix in NOON_SORT_ORDERS:
             if len(all_products) >= limit:
                 break
 
-            url = base_url if page_num == 1 else f"{base_url}?page={page_num}"
-            print(f"  Page {page_num}: {url}")
+            sort_url = base_url + sort_suffix
+            print(f"\n  [Sort: {sort_name}]")
+            sort_count = 0
 
-            raw = _scrape_page(page, url, cat_name)
-            print(f"  RSC hits: {len(raw)}")
+            for page_num in range(1, 200):
+                if len(all_products) >= limit:
+                    break
 
-            new_count = 0
-            for p in raw:
-                if p and p["sku"] not in seen and len(all_products) < limit:
-                    seen.add(p["sku"])
-                    all_products.append(p)
-                    new_count += 1
+                sep = "&" if "?" in sort_suffix else "?"
+                url = sort_url if page_num == 1 else f"{sort_url}{sep}page={page_num}"
+                print(f"  Page {page_num}: {url}")
 
-            print(f"  +{new_count} new  (total {len(all_products)}/{limit})")
+                raw = _scrape_page(page, url, cat_name)
+                print(f"  RSC hits: {len(raw)}")
 
-            if new_count == 0:
-                if page_num == 1:
-                    print("  Page 1 returned 0 products — category may be empty or blocked.")
-                else:
-                    print(f"  No new products on page {page_num} — category exhausted.")
-                break
+                new_count = 0
+                for p in raw:
+                    if p and p["sku"] not in seen and len(all_products) < limit:
+                        seen.add(p["sku"])
+                        all_products.append(p)
+                        new_count += 1
+                        sort_count += 1
 
-            time.sleep(random.uniform(1.5, 3))
+                print(f"  +{new_count} new  (total {len(all_products)}/{limit})")
+
+                if new_count == 0:
+                    print(f"  Sort '{sort_name}' exhausted at page {page_num}")
+                    break
+
+                time.sleep(random.uniform(1.5, 3))
+
+            print(f"  Sort '{sort_name}' done: {sort_count} new products")
 
         browser.close()
 
