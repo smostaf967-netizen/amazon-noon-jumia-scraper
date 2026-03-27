@@ -1,9 +1,10 @@
 """
-amazon_node_spider.py — Phase 3
-================================
-يسكراب Amazon Egypt browse node واحد بـ 4 sort orders.
-كل sort → 20 page × 20 product = 400 product.
-بعد dedup بالـ ASIN: يطلع ~400-1600 منتج فريد.
+amazon_node_spider.py — Phase 3 (v2 + Price Bands)
+====================================================
+يسكراب Amazon Egypt browse node واحد بـ:
+  - 9 price bands (نطاقات سعرية)
+  - 4 sort orders لكل band
+  = 36 combination × 400 product = ~14,400 منتج لكل node
 
 Usage:
   python amazon_node_spider.py --node_id 21832868031 --node_name "Mobile Phones" --limit 99999
@@ -41,6 +42,20 @@ SORT_ORDERS = [
     ("price_asc",  "&s=price-asc-rank"),
     ("newest",     "&s=date-desc-rank"),
     ("reviews",    "&s=review-rank"),
+]
+
+# Price bands in EGP — كل band بيجيب منتجات مختلفة
+# URL format: rh=n%3A{node}%2Cp_36%3A{min}-{max}
+PRICE_BANDS = [
+    ("0-50",        0,       50),
+    ("50-100",      50,      100),
+    ("100-200",     100,     200),
+    ("200-500",     200,     500),
+    ("500-1000",    500,     1000),
+    ("1000-2000",   1000,    2000),
+    ("2000-5000",   2000,    5000),
+    ("5000-10000",  5000,    10000),
+    ("10000+",      10000,   None),   # None = بدون حد أقصى
 ]
 
 HEADERS = {
@@ -157,13 +172,14 @@ def extract_products(html, category):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def scrape_node(node_id, node_name, limit):
-    session     = curl_requests.Session(impersonate="chrome124")
+    session      = curl_requests.Session(impersonate="chrome124")
     all_products = []
-    seen_asins  = set()
+    seen_asins   = set()
 
     print(f"\n{'='*60}")
     print(f"  Node: {node_id}  ({node_name})")
     print(f"  Limit: {limit}")
+    print(f"  Strategy: {len(PRICE_BANDS)} price bands × {len(SORT_ORDERS)} sorts = {len(PRICE_BANDS)*len(SORT_ORDERS)} combinations")
     print(f"{'='*60}\n")
 
     # Warm up
@@ -173,56 +189,67 @@ def scrape_node(node_id, node_name, limit):
     except Exception:
         pass
 
-    for sort_name, sort_param in SORT_ORDERS:
+    for band_name, price_min, price_max in PRICE_BANDS:
         if len(all_products) >= limit:
             break
 
-        base_url = f"{BASE}/s?bbn={node_id}&rh=n%3A{node_id}{sort_param}"
-        print(f"\n  [Sort: {sort_name}]  {base_url}")
-        sort_count = 0
+        # Build price filter param
+        if price_max is None:
+            price_param = f"%2Cp_36%3A{price_min}-"
+        else:
+            price_param = f"%2Cp_36%3A{price_min}-{price_max}"
 
-        for page in range(1, MAX_PAGES + 1):
+        band_total = 0
+        print(f"\n  [Price: {band_name} EGP]")
+
+        for sort_name, sort_param in SORT_ORDERS:
             if len(all_products) >= limit:
                 break
 
-            url = base_url if page == 1 else f"{base_url}&page={page}"
+            base_url = f"{BASE}/s?bbn={node_id}&rh=n%3A{node_id}{price_param}{sort_param}"
+            combo_count = 0
 
-            try:
-                r = session.get(url, headers=HEADERS, timeout=45)
-            except Exception as e:
-                print(f"    Page {page}: ERROR {e}")
-                break
+            for page in range(1, MAX_PAGES + 1):
+                if len(all_products) >= limit:
+                    break
 
-            if r.status_code == 503:
-                print(f"    Page {page}: 503 — backing off 30s")
-                time.sleep(30)
-                continue
-            if r.status_code != 200:
-                print(f"    Page {page}: HTTP {r.status_code} — stopping sort")
-                break
+                url = base_url if page == 1 else f"{base_url}&page={page}"
 
-            products = extract_products(r.text, node_name)
-            if not products:
-                print(f"    Page {page}: 0 cards — end of sort")
-                break
+                try:
+                    r = session.get(url, headers=HEADERS, timeout=45)
+                except Exception as e:
+                    print(f"    [{band_name}/{sort_name}] Page {page}: ERROR {e}")
+                    break
 
-            new = 0
-            for p in products:
-                if p["asin"] not in seen_asins and len(all_products) < limit:
-                    seen_asins.add(p["asin"])
-                    all_products.append(p)
-                    new += 1
-                    sort_count += 1
+                if r.status_code == 503:
+                    time.sleep(30)
+                    continue
+                if r.status_code != 200:
+                    break
 
-            print(f"    Page {page}: {len(products)} cards, {new} new  (total={len(all_products)})")
+                products = extract_products(r.text, node_name)
+                if not products:
+                    break
 
-            if new == 0:
-                print(f"    No new ASINs — moving to next sort")
-                break
+                new = 0
+                for p in products:
+                    if p["asin"] not in seen_asins and len(all_products) < limit:
+                        seen_asins.add(p["asin"])
+                        all_products.append(p)
+                        new += 1
+                        combo_count += 1
 
-            time.sleep(random.uniform(1.5, 3.0))
+                if new == 0:
+                    break
 
-        print(f"  Sort '{sort_name}' done: {sort_count} new products")
+                time.sleep(random.uniform(1.0, 2.0))
+
+            if combo_count:
+                print(f"    {sort_name}: +{combo_count}  (total={len(all_products)})")
+            band_total += combo_count
+
+        if band_total:
+            print(f"  Band '{band_name}' done: {band_total} new products")
 
     return all_products
 
