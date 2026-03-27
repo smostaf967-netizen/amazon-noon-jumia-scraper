@@ -87,7 +87,7 @@ jobs:
             --category-name "${{ matrix.name }}" \
             --category-url  "${{ matrix.url }}" \
             --group-index   ${{ matrix.idx }} \
-            --limit 99999 \
+            --limit ${{ github.event.inputs.limit || '99999' }} \
             --deep
         timeout-minutes: 180
 
