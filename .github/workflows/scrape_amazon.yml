@@ -9,6 +9,10 @@ on:
         description: 'Reason for manual trigger'
         required: false
         default: 'Manual run'
+      limit:
+        description: 'Max products per group'
+        required: false
+        default: '2000'
 
 jobs:
   scrape:
@@ -36,7 +40,7 @@ jobs:
         run: sleep $((RANDOM % 60 + 30))
 
       - name: Run spider (Group ${{ matrix.group_index }})
-        run: python amazon_spider.py --group_index ${{ matrix.group_index }} --limit 2000
+        run: python amazon_spider.py --group_index ${{ matrix.group_index }} --limit ${{ github.event.inputs.limit || '2000' }}
 
       - name: Upload results
         uses: actions/upload-artifact@v4
