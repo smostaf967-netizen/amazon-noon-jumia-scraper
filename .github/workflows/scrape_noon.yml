@@ -12,7 +12,7 @@ on:
       limit:
         description: 'Max products per group'
         required: false
-        default: '5000'
+        default: '99999'
 
 jobs:
   scrape:
@@ -51,7 +51,7 @@ jobs:
       - name: Run spider (Group ${{ matrix.group_index }})
         env:
           DISPLAY: :99
-        run: python noon_spider.py --group_index ${{ matrix.group_index }} --limit ${{ github.event.inputs.limit || '5000' }}
+        run: python noon_spider.py --group_index ${{ matrix.group_index }} --limit ${{ github.event.inputs.limit || '99999' }}
 
       - name: Upload results
         uses: actions/upload-artifact@v4

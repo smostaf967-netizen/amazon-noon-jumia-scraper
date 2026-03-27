@@ -87,9 +87,9 @@ jobs:
             --category-name "${{ matrix.name }}" \
             --category-url  "${{ matrix.url }}" \
             --group-index   ${{ matrix.idx }} \
-            --limit 5000 \
+            --limit 99999 \
             --deep
-        timeout-minutes: 90
+        timeout-minutes: 180
 
       - name: Upload products artifact
         if: always()
