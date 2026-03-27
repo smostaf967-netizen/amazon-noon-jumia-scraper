@@ -1,0 +1,65 @@
+name: Noon Category Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_depth:
+        description: 'Max subcategory depth (default 4)'
+        required: false
+        default: '4'
+      max_cats:
+        description: 'Max categories to discover (default 500)'
+        required: false
+        default: '500'
+
+jobs:
+  discover:
+    name: Discover Noon Egypt Categories
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl-cffi beautifulsoup4
+
+      - name: Warm up (brief delay)
+        run: sleep $((RANDOM % 20 + 5))
+
+      - name: Run category discovery
+        run: |
+          python noon_subcategory_discovery.py
+
+      - name: Show summary
+        run: |
+          python - <<'EOF'
+          import json, sys
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+          cats   = json.load(open("noon_categories.json", encoding="utf-8"))
+          leaves = [c for c in cats if c["is_leaf"]]
+
+          print(f"\n{'='*55}")
+          print(f"  Total categories  : {len(cats)}")
+          print(f"  Leaf categories   : {len(leaves)}")
+          rsc = any(c.get("rsc_ok") for c in cats)
+          print(f"  RSC via curl-cffi : {'YES' if rsc else 'NO'}")
+          print(f"\n  Top 20 by product count:")
+          for c in sorted(leaves, key=lambda x: x["count"], reverse=True)[:20]:
+              print(f"    {c['count']:>8}  {c['name'][:45]:<45}  d={c['depth']}")
+          print(f"{'='*55}\n")
+          EOF
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: noon-categories
+          path: |
+            noon_categories.json
+            noon_leaf_categories.json
+          retention-days: 30
