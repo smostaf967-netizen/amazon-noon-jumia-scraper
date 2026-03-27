@@ -1,4 +1,4 @@
-name: Amazon Node Scraper - Account 1 (TEST)
+name: Amazon Node Scraper - Account 1 (20 nodes)
 
 on:
   workflow_dispatch:
@@ -18,12 +18,26 @@ jobs:
       max-parallel: 20
       matrix:
         include:
-          # TEST: 5 nodes من نتيجة Phase 1 (depth=2 run)
-          - { node_id: "21826026031",  node_name: "Perfumes" }
-          - { node_id: "18022560031",  node_name: "Video Games" }
-          - { node_id: "21863792031",  node_name: "Appliances" }
-          - { node_id: "18022503031",  node_name: "Toys & Games" }
-          - { node_id: "21832868031",  node_name: "Mobile Phones" }
+          - { node_id: "18018102031",  node_name: "Cat8102031" }
+          - { node_id: "18017874031",  node_name: "Agricultural Vehicle Parts & Equipment" }
+          - { node_id: "18022275031",  node_name: "Calendars, Planners & Personal Organizers" }
+          - { node_id: "21826029031",  node_name: "Cat6029031" }
+          - { node_id: "18020637031",  node_name: "Cat0637031" }
+          - { node_id: "21832878031",  node_name: "Cat2878031" }
+          - { node_id: "21845327031",  node_name: "Cat5327031" }
+          - { node_id: "27972173031",  node_name: "Cat2173031" }
+          - { node_id: "21832887031",  node_name: "Cat2887031" }
+          - { node_id: "21845209031",  node_name: "Cat5209031" }
+          - { node_id: "21845337031",  node_name: "Cat5337031" }
+          - { node_id: "21845414031",  node_name: "Cat5414031" }
+          - { node_id: "21858008031",  node_name: "Cat8008031" }
+          - { node_id: "212401101031",  node_name: "Cat1101031" }
+          - { node_id: "49987947031",  node_name: "Cat7947031" }
+          - { node_id: "21857955031",  node_name: "Cat7955031" }
+          - { node_id: "21857878031",  node_name: "Cat7878031" }
+          - { node_id: "21857974031",  node_name: "Cat7974031" }
+          - { node_id: "21832982031",  node_name: "Cat2982031" }
+          - { node_id: "21833220031",  node_name: "Cat3220031" }
 
     steps:
       - uses: actions/checkout@v4
