@@ -97,6 +97,15 @@ SEED_CATEGORIES = [
     {"name": "Jewelry",              "url": f"{BASE_URL}/jewelry/"},
 ]
 
+# Sort orders — كل sort بيجيب منتجات مختلفة
+JUMIA_SORT_ORDERS = [
+    ("default",    ""),
+    ("price_asc",  "?sort[by]=price&sort[dir]=asc"),
+    ("price_desc", "?sort[by]=price&sort[dir]=desc"),
+    ("newest",     "?sort[by]=date&sort[dir]=desc"),
+    ("top_rated",  "?sort[by]=rating&sort[dir]=desc"),
+]
+
 CSV_FIELDS = [
     "product_id", "title", "brand", "category",
     "price_egp", "original_price", "discount_percent",
@@ -1023,17 +1032,7 @@ async def scrape_category(
     """
     log.info(f"[{category_name}] Scraping → {category_url}")
 
-    # ── First page: parse products + detect total pages ──────────────────────
-    first_html = await fetch(session, category_url, referer=BASE_URL)
-    if not first_html:
-        log.error(f"[{category_name}] Cannot fetch first page — aborting.")
-        return 0
-
-    first_soup = BeautifulSoup(first_html, "lxml")
-    total_pages = get_total_pages(first_soup)
-    log.info(f"[{category_name}] {total_pages} pages detected.")
-
-    # Deduplicated product store  {product_id | product_url  →  product}
+    # Deduplicated product store across all sort orders
     seen: set[str] = set()
     products: list[dict] = []
 
@@ -1043,37 +1042,62 @@ async def scrape_category(
             seen.add(key)
             products.append(p)
 
-    for p in parse_listing_page(first_html, category_name):
-        _add(p)
+    # ── Loop over sort orders ──────────────────────────────────────────────────
+    for sort_name, sort_suffix in JUMIA_SORT_ORDERS:
+        if len(products) >= limit:
+            break
 
-    # ── Remaining pages: concurrent ───────────────────────────────────────────
-    if total_pages > 1 and len(products) < limit:
-        # Brief pause so the Cloudflare session stabilises after first-page access
-        await asyncio.sleep(random.uniform(2.0, 4.0))
-        sem = asyncio.Semaphore(PAGE_CONCURRENCY)
-        sep = "&" if "?" in category_url else "?"
-        extra_urls = [
-            f"{category_url}{sep}page={n}"
-            for n in range(2, min(total_pages + 1, MAX_PAGES + 1))
-        ]
+        sort_url = category_url + sort_suffix  # category URLs end in /
+        log.info(f"[{category_name}] Sort: {sort_name} → {sort_url}")
 
-        log.info(f"[{category_name}] Fetching {len(extra_urls)} more pages concurrently …")
-        tasks = [
-            _fetch_listing_page(session, sem, url, category_name, category_url)
-            for url in extra_urls
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # ── First page: parse products + detect total pages ───────────────────
+        first_html = await fetch(session, sort_url, referer=BASE_URL)
+        if not first_html:
+            log.warning(f"[{category_name}] Cannot fetch first page for sort '{sort_name}' — skipping.")
+            continue
 
-        for batch in results:
-            if isinstance(batch, Exception):
-                log.warning(f"[{category_name}] Page error: {batch}")
-                continue
-            for p in batch:
-                _add(p)
+        first_soup = BeautifulSoup(first_html, "lxml")
+        total_pages = get_total_pages(first_soup)
+        log.info(f"[{category_name}] Sort '{sort_name}': {total_pages} pages detected.")
+
+        sort_before = len(products)
+        for p in parse_listing_page(first_html, category_name):
+            _add(p)
+
+        # ── Remaining pages: concurrent ───────────────────────────────────────
+        if total_pages > 1 and len(products) < limit:
+            await asyncio.sleep(random.uniform(2.0, 4.0))
+            sem = asyncio.Semaphore(PAGE_CONCURRENCY)
+            sep = "&" if "?" in sort_url else "?"
+            extra_urls = [
+                f"{sort_url}{sep}page={n}"
+                for n in range(2, min(total_pages + 1, MAX_PAGES + 1))
+            ]
+
+            log.info(f"[{category_name}] Fetching {len(extra_urls)} more pages concurrently …")
+            tasks = [
+                _fetch_listing_page(session, sem, url, category_name, sort_url)
+                for url in extra_urls
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for batch in results:
+                if isinstance(batch, Exception):
+                    log.warning(f"[{category_name}] Page error: {batch}")
+                    continue
+                for p in batch:
+                    _add(p)
+                    if len(products) >= limit:
+                        break
                 if len(products) >= limit:
                     break
-            if len(products) >= limit:
-                break
+
+        sort_new = len(products) - sort_before
+        log.info(f"[{category_name}] Sort '{sort_name}' done: +{sort_new} new (total {len(products)})")
+
+        if sort_new == 0:
+            log.info(f"[{category_name}] Sort '{sort_name}' returned no new products — skipping remaining sorts.")
+            break
 
     products = products[:limit]
     log.info(f"[{category_name}] {len(products)} unique products from listings.")
