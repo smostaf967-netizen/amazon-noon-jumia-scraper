@@ -12,7 +12,7 @@ import time
 import random
 from datetime import datetime
 
-PRODUCT_LIMIT = 2000  # per group — 27 groups × 2000 = up to 54,000 products
+PRODUCT_LIMIT = 2000  # per group — 43 groups × 2000 = up to 86,000 products
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -32,35 +32,57 @@ HEADERS = {
     ),
 }
 
-# ── 27 groups covering all Amazon Egypt categories ────────────────────────────
+# ── 43 groups covering all Amazon Egypt categories ────────────────────────────
 CATEGORY_GROUPS = {
+    # Electronics
     "0":  ("Mobiles",              "https://www.amazon.eg/s?k=mobile+phones&i=mobile"),
     "1":  ("Computers",           "https://www.amazon.eg/s?k=laptops+computers&i=computers"),
-    "2":  ("Electronics",         "https://www.amazon.eg/s?k=electronics&i=electronics"),
-    "3":  ("Appliances",          "https://www.amazon.eg/s?k=home+appliances&i=appliances"),
-    "4":  ("Kitchen",             "https://www.amazon.eg/s?k=kitchen+products&i=kitchen"),
-    "5":  ("Men's Fashion",       "https://www.amazon.eg/s?k=mens+clothing&i=fashion-mens-clothing"),
-    "6":  ("Women's Fashion",     "https://www.amazon.eg/s?k=womens+clothing&i=fashion-womens-clothing"),
-    "7":  ("Girls Fashion",       "https://www.amazon.eg/s?k=girls+clothing&i=fashion-girls-clothing"),
-    "8":  ("Shoes",               "https://www.amazon.eg/s?k=shoes&i=shoes"),
-    "9":  ("Beauty",              "https://www.amazon.eg/s?k=beauty+skincare&i=beauty"),
-    "10": ("Health & Personal",   "https://www.amazon.eg/s?k=health+personal+care&i=hpc"),
-    "11": ("Sports",              "https://www.amazon.eg/s?k=sports+fitness&i=sporting-goods"),
-    "12": ("Toys & Games",        "https://www.amazon.eg/s?k=toys+games&i=toys-and-games"),
-    "13": ("Baby Products",       "https://www.amazon.eg/s?k=baby+products&i=baby-products"),
-    "14": ("Luggage",             "https://www.amazon.eg/s?k=luggage+bags&i=luggage"),
-    "15": ("Watches",             "https://www.amazon.eg/s?k=watches&i=watches"),
-    "16": ("Automotive",          "https://www.amazon.eg/s?k=automotive+car&i=automotive"),
-    "17": ("Office Products",     "https://www.amazon.eg/s?k=office+products&i=office-products"),
-    "18": ("Pet Supplies",        "https://www.amazon.eg/s?k=pet+supplies&i=pet-supplies"),
-    "19": ("Grocery",             "https://www.amazon.eg/s?k=grocery+food&i=grocery"),
-    "20": ("Books",               "https://www.amazon.eg/s?k=books&i=stripbooks"),
-    "21": ("Video Games",         "https://www.amazon.eg/s?k=video+games&i=videogames"),
-    "22": ("Tools",               "https://www.amazon.eg/s?k=tools+hardware&i=tools"),
-    "23": ("Musical Instruments", "https://www.amazon.eg/s?k=musical+instruments&i=musical-instruments"),
-    "24": ("Garden",              "https://www.amazon.eg/s?k=garden+outdoor&i=garden"),
-    "25": ("Movies & TV",         "https://www.amazon.eg/s?k=movies+tv&i=movies-tv"),
-    "26": ("Jewelry",             "https://www.amazon.eg/s?k=jewelry&i=jewelry"),
+    "2":  ("Tablets",             "https://www.amazon.eg/s?k=tablets&i=computers"),
+    "3":  ("Electronics",         "https://www.amazon.eg/s?k=electronics&i=electronics"),
+    "4":  ("TVs",                 "https://www.amazon.eg/s?k=television+tv&i=electronics"),
+    "5":  ("Cameras",             "https://www.amazon.eg/s?k=cameras+photography&i=photo"),
+    "6":  ("Audio & Headphones",  "https://www.amazon.eg/s?k=headphones+speakers&i=electronics"),
+    "7":  ("Smart Home",          "https://www.amazon.eg/s?k=smart+home&i=electronics"),
+    "8":  ("Video Games",         "https://www.amazon.eg/s?k=video+games&i=videogames"),
+    # Home & Kitchen
+    "9":  ("Appliances",          "https://www.amazon.eg/s?k=home+appliances&i=appliances"),
+    "10": ("Kitchen",             "https://www.amazon.eg/s?k=kitchen+products&i=kitchen"),
+    "11": ("Furniture",           "https://www.amazon.eg/s?k=furniture+home&i=furniture"),
+    "12": ("Bedding & Bath",      "https://www.amazon.eg/s?k=bedding+bath+towels&i=garden"),
+    "13": ("Lighting",            "https://www.amazon.eg/s?k=lighting+lamps&i=lighting"),
+    "14": ("Cleaning Supplies",   "https://www.amazon.eg/s?k=cleaning+supplies&i=grocery"),
+    "15": ("Tools",               "https://www.amazon.eg/s?k=tools+hardware&i=tools"),
+    "16": ("Garden",              "https://www.amazon.eg/s?k=garden+outdoor&i=garden"),
+    # Fashion
+    "17": ("Men's Fashion",       "https://www.amazon.eg/s?k=mens+clothing&i=fashion-mens-clothing"),
+    "18": ("Men's Shoes",         "https://www.amazon.eg/s?k=mens+shoes&i=shoes"),
+    "19": ("Women's Fashion",     "https://www.amazon.eg/s?k=womens+clothing&i=fashion-womens-clothing"),
+    "20": ("Women's Shoes",       "https://www.amazon.eg/s?k=womens+shoes&i=shoes"),
+    "21": ("Girls Fashion",       "https://www.amazon.eg/s?k=girls+clothing&i=fashion-girls-clothing"),
+    "22": ("Boys Fashion",        "https://www.amazon.eg/s?k=boys+clothing&i=fashion-boys-clothing"),
+    "23": ("Kids' Shoes",         "https://www.amazon.eg/s?k=kids+shoes&i=shoes"),
+    "24": ("Luggage",             "https://www.amazon.eg/s?k=luggage+bags&i=luggage"),
+    "25": ("Watches",             "https://www.amazon.eg/s?k=watches&i=watches"),
+    "26": ("Sunglasses",          "https://www.amazon.eg/s?k=sunglasses+eyewear&i=fashion"),
+    "27": ("Jewelry",             "https://www.amazon.eg/s?k=jewelry&i=jewelry"),
+    # Beauty & Health
+    "28": ("Beauty",              "https://www.amazon.eg/s?k=beauty+skincare&i=beauty"),
+    "29": ("Fragrances",          "https://www.amazon.eg/s?k=fragrances+perfume&i=beauty"),
+    "30": ("Health & Personal",   "https://www.amazon.eg/s?k=health+personal+care&i=hpc"),
+    "31": ("Vitamins",            "https://www.amazon.eg/s?k=vitamins+supplements&i=hpc"),
+    # Sports, Toys, Baby
+    "32": ("Sports",              "https://www.amazon.eg/s?k=sports+fitness&i=sporting-goods"),
+    "33": ("Outdoor & Camping",   "https://www.amazon.eg/s?k=outdoor+camping&i=sporting-goods"),
+    "34": ("Toys & Games",        "https://www.amazon.eg/s?k=toys+games&i=toys-and-games"),
+    "35": ("Baby Products",       "https://www.amazon.eg/s?k=baby+products&i=baby-products"),
+    # Other
+    "36": ("Books",               "https://www.amazon.eg/s?k=books&i=stripbooks"),
+    "37": ("Automotive",          "https://www.amazon.eg/s?k=automotive+car&i=automotive"),
+    "38": ("Office Products",     "https://www.amazon.eg/s?k=office+products&i=office-products"),
+    "39": ("Pet Supplies",        "https://www.amazon.eg/s?k=pet+supplies&i=pet-supplies"),
+    "40": ("Grocery",             "https://www.amazon.eg/s?k=grocery+food&i=grocery"),
+    "41": ("Musical Instruments", "https://www.amazon.eg/s?k=musical+instruments&i=musical-instruments"),
+    "42": ("Movies & TV",         "https://www.amazon.eg/s?k=movies+tv&i=movies-tv"),
 }
 
 
