@@ -139,6 +139,7 @@ jobs:
           git config user.name "Scraper Bot"
           git add data/
           if ! git diff --staged --quiet; then
+            git commit -m "Update jumia from account1 - $(date -u +%Y-%m-%d)"
             for i in 1 2 3; do
               git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
             done
