@@ -119,15 +119,15 @@ JUMIA_PRICE_BANDS = [
 ]
 
 CSV_FIELDS = [
-    "product_id", "title", "brand", "category",
-    "price_egp", "original_price", "discount_percent",
+    "platform", "product_id", "title", "brand", "category",
+    "current_price", "original_price", "discount",
     "rating", "reviews_count", "availability",
-    "jumia_express", "jumia_verified",
-    "sold_by", "ships_from", "delivery_date",
+    "seller", "express_delivery", "platform_badge", "sponsored",
     "main_image", "all_images",
     "description", "weight", "dimensions",
     "model_number", "country_of_origin", "warranty",
     "tech_specs", "variations",
+    "ships_from", "delivery_date",
     "product_url", "scraped_at",
 ]
 
@@ -782,33 +782,35 @@ def parse_listing_page(html: str, category_name: str) -> list[dict]:
             jumia_express = "Yes" if xtrs else ""
 
             products.append({
-                "product_id":      product_id,
-                "title":           title,
-                "brand":           "",
-                "category":        category_name,
-                "price_egp":       price_egp if price_egp is not None else "",
-                "original_price":  original_price if original_price is not None else "",
-                "discount_percent": discount_percent,
-                "rating":          rating if rating is not None else "",
-                "reviews_count":   reviews_count if reviews_count is not None else "",
-                "availability":    "",
-                "jumia_express":   jumia_express,
-                "jumia_verified":  "",
-                "sold_by":         "",
-                "ships_from":      "",
-                "delivery_date":   "",
-                "main_image":      main_image,
-                "all_images":      "",
-                "description":     "",
-                "weight":          "",
-                "dimensions":      "",
-                "model_number":    "",
+                "platform":          "jumia",
+                "product_id":        product_id,
+                "title":             title,
+                "brand":             "",
+                "category":          category_name,
+                "current_price":     f"{price_egp} EGP" if price_egp is not None and price_egp != "" else "",
+                "original_price":    f"{original_price} EGP" if original_price is not None and original_price != "" else "",
+                "discount":          discount_percent,
+                "rating":            rating if rating is not None else "",
+                "reviews_count":     reviews_count if reviews_count is not None else "",
+                "availability":      "",
+                "seller":            "",
+                "express_delivery":  jumia_express,
+                "platform_badge":    "",
+                "sponsored":         "",
+                "main_image":        main_image,
+                "all_images":        "",
+                "description":       "",
+                "weight":            "",
+                "dimensions":        "",
+                "model_number":      "",
                 "country_of_origin": "",
-                "warranty":        "",
-                "tech_specs":      "",
-                "variations":      "",
-                "product_url":     product_url,
-                "scraped_at":      now,
+                "warranty":          "",
+                "tech_specs":        "",
+                "variations":        "",
+                "ships_from":        "",
+                "delivery_date":     "",
+                "product_url":       product_url,
+                "scraped_at":        now,
             })
 
         except Exception as exc:
@@ -946,10 +948,10 @@ def parse_detail_page(html: str, product: dict) -> dict:
             # Seller name is the first <p> inside the second div of the card
             seller_p = card.select_one("p.-m.-pbs, p[class*='-pbs']")
             if seller_p:
-                p["sold_by"] = seller_p.get_text(strip=True)
+                p["seller"] = seller_p.get_text(strip=True)
             # Jumia Mall / Jumia Verified check
             if "jumia mall" in card_text or "jumia verified" in card_text:
-                p["jumia_verified"] = "Yes"
+                p["platform_badge"] = "Yes"
             break
 
     # ── 4. Delivery date — "Ready for delivery on 29 March" ──────────────────
@@ -969,10 +971,10 @@ def parse_detail_page(html: str, product: dict) -> dict:
             break
 
     # ── 6. Jumia Express — look for the text anywhere in the page ────────────
-    if not p.get("jumia_express"):
+    if not p.get("express_delivery"):
         page_text_lower = soup.get_text(separator=" ").lower()
         if "jumia express" in page_text_lower:
-            p["jumia_express"] = "Yes"
+            p["express_delivery"] = "Yes"
 
     # ── 7. Variations — look for variant link lists ───────────────────────────
     variations: dict = {}
