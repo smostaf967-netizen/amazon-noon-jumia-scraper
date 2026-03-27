@@ -19,6 +19,7 @@ jobs:
     name: Scrape Group ${{ matrix.group_index }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    continue-on-error: true
     strategy:
       matrix:
         group_index: [0,1,2,3,4,5,6,7,8,9,10]
@@ -40,13 +41,21 @@ jobs:
         run: sleep $((RANDOM % 20 + 5))
 
       - name: Run spider (Group ${{ matrix.group_index }})
+        id: scrape
         run: python amazon_spider.py --group_index ${{ matrix.group_index }} --limit ${{ github.event.inputs.limit || '99999' }}
 
+      - name: Log blocked group
+        if: failure()
+        run: echo "Group ${{ matrix.group_index }} | blocked/failed" >> blocked.log
+
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: amazon-products-${{ matrix.group_index }}
-          path: products_${{ matrix.group_index }}.json
+          path: |
+            products_${{ matrix.group_index }}.json
+            blocked.log
 
   export:
     name: Merge & Export CSV
