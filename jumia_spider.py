@@ -47,7 +47,7 @@ from tqdm import tqdm
 # ─────────────────────────────────────────────────────────────────────────────
 
 BASE_URL         = "https://www.jumia.com.eg"
-PRODUCT_LIMIT    = 5000
+PRODUCT_LIMIT    = 99999
 MAX_PAGES        = 200
 PAGE_CONCURRENCY = 8      # concurrent listing pages per category
 DETAIL_CONCURRENCY = 8    # concurrent product detail fetches
