@@ -1,14 +1,14 @@
-name: Jumia Scraper - Account 1 (Categories 0-5)
+name: Jumia Scraper - Account 1 (Categories 0-7)
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '0 3 * * *'   # 5:00 AM Egypt time
   workflow_dispatch:
     inputs:
       limit:
         description: 'Max products per category'
         required: false
-        default: '99999'
+        default: '5000'
 
 jobs:
   discover:
@@ -34,7 +34,7 @@ jobs:
           MATRIX=$(python - <<'EOF'
           import json, sys
           cats = json.load(open("categories.json", encoding="utf-8"))
-          subset = cats[0:5]
+          subset = cats[0:6]
           matrix = {
               "include": [
                   {"name": c["name"], "url": c["url"], "idx": i}
@@ -80,7 +80,6 @@ jobs:
 
       - name: Install Playwright browser
         run: playwright install chromium --with-deps
-        timeout-minutes: 10
 
       - name: "Scrape ${{ matrix.name }}"
         id: scrape
@@ -95,13 +94,9 @@ jobs:
         timeout-minutes: 180
 
       - name: Log blocked category
-        if: always()
+        if: failure()
         run: |
-          FILE="products_${{ matrix.idx }}.json"
-          if [ ! -f "$FILE" ] || python -c "import json; d=json.load(open('$FILE')); exit(0 if len(d)==0 else 1)" 2>/dev/null; then
-            echo "${{ matrix.name }} | ${{ matrix.url }} | blocked/empty" >> blocked.log
-            echo "Category '${{ matrix.name }}' returned 0 products — logged as blocked"
-          fi
+          echo "${{ matrix.name }} | ${{ matrix.url }} | blocked/failed" >> blocked.log
 
       - name: Upload products artifact
         if: always()
