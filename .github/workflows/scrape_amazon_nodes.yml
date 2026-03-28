@@ -133,7 +133,7 @@ jobs:
         env:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
         run: |
-          git clone https://${MASTER_TOKEN}@github.com/mostafa11100/scraped-products-master.git master_repo
+          git clone https://${MASTER_TOKEN}@github.com/khaledali45947-dev/scraped-products-master.git master_repo
           mkdir -p master_repo/data/account1
           cp amazon_products.csv master_repo/data/account1/amazon_products_nodes.csv 2>/dev/null || true
           cd master_repo
