@@ -49,12 +49,12 @@ from tqdm import tqdm
 BASE_URL         = "https://www.jumia.com.eg"
 PRODUCT_LIMIT    = 99999
 MAX_PAGES        = 200
-PAGE_CONCURRENCY = 8      # concurrent listing pages per category
-DETAIL_CONCURRENCY = 8    # concurrent product detail fetches
-PAGE_DELAY       = (0.8, 1.8)    # seconds between page requests
-DETAIL_DELAY     = (0.2, 0.5)    # seconds between detail requests (Playwright handles its own latency)
-RATE_LIMIT_PAUSE = (15, 45)      # seconds to wait on 429
-SERVER_ERR_PAUSE = (30, 60)      # seconds to wait on 5xx
+PAGE_CONCURRENCY = 2      # concurrent listing pages (human-like)
+DETAIL_CONCURRENCY = 2    # concurrent product detail fetches
+PAGE_DELAY       = (4, 8)        # seconds between page requests (human-like browsing)
+DETAIL_DELAY     = (3, 6)        # seconds between detail requests
+RATE_LIMIT_PAUSE = (30, 90)      # seconds to wait on 429
+SERVER_ERR_PAUSE = (60, 120)     # seconds to wait on 5xx
 REQUEST_TIMEOUT  = 30
 
 # Chrome 131-compatible User-Agents (matches impersonate="chrome131")
@@ -156,7 +156,7 @@ _pw_browser:    Optional[Any] = None
 _pw_context:    Optional[Any] = None
 _pw_semaphore:  Optional[asyncio.Semaphore] = None
 _pw_stealth:    Optional[Any] = None   # playwright-stealth async function if available
-PW_CONCURRENCY = 12   # max concurrent Playwright tabs (each ~50-100 MB, 7GB RAM avail)
+PW_CONCURRENCY = 4    # max concurrent Playwright tabs (reduced to look natural)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOGGING
@@ -445,7 +445,7 @@ async def _pw_fetch(
         async with _pw_semaphore:
             page = None
             try:
-                await asyncio.sleep(random.uniform(1.0, 2.5))
+                await asyncio.sleep(random.uniform(3, 6))
                 page = await _pw_context.new_page()
                 if _pw_stealth:
                     await _pw_stealth(page)
@@ -481,6 +481,7 @@ async def _pw_fetch(
                     if attempt < max_attempts:
                         await asyncio.sleep(30)
                 elif status == 404:
+                    log.warning(f"404 Not Found (PW): {url[:80]}")
                     return None
                 else:
                     log.warning(f"HTTP {status} (PW, attempt {attempt})  [{url[:60]}]")
@@ -1057,6 +1058,9 @@ async def scrape_category(
             products.append(p)
 
     # ── Loop over price bands × sort orders (35 combinations) ────────────────
+    total_fetch_failures = 0
+    total_combos = len(JUMIA_PRICE_BANDS) * len(JUMIA_SORT_ORDERS)
+
     for band_name, band_param in JUMIA_PRICE_BANDS:
         if len(products) >= limit:
             break
@@ -1080,6 +1084,7 @@ async def scrape_category(
             # ── First page ────────────────────────────────────────────────────
             first_html = await fetch(session, combo_url, referer=BASE_URL)
             if not first_html:
+                total_fetch_failures += 1
                 log.warning(f"[{category_name}] Cannot fetch [{band_name}/{sort_name}] — skipping.")
                 continue
 
@@ -1092,7 +1097,7 @@ async def scrape_category(
 
             # ── Remaining pages: concurrent ───────────────────────────────────
             if total_pages > 1 and len(products) < limit:
-                await asyncio.sleep(random.uniform(1.5, 3.0))
+                await asyncio.sleep(random.uniform(3, 6))
                 sem = asyncio.Semaphore(PAGE_CONCURRENCY)
                 extra_urls = [
                     f"{combo_url}&page={n}"
@@ -1120,6 +1125,53 @@ async def scrape_category(
 
         band_new = len(products) - band_before
         log.info(f"[{category_name}] Band '{band_name}' done: +{band_new} new (total {len(products)})")
+
+    # ── Fallback: if ALL price-filtered URLs failed (e.g. 404), scrape without filters ──
+    if total_fetch_failures >= total_combos and len(products) == 0:
+        log.warning(f"[{category_name}] All {total_combos} filtered URLs failed — "
+                     f"falling back to unfiltered scraping")
+        for sort_name, sort_param in JUMIA_SORT_ORDERS:
+            if len(products) >= limit:
+                break
+            fallback_url = f"{category_url}?{sort_param}" if sort_param else category_url
+            log.info(f"[{category_name}] [fallback/{sort_name}] → {fallback_url}")
+
+            fb_html = await fetch(session, fallback_url, referer=BASE_URL)
+            if not fb_html:
+                continue
+
+            fb_soup = BeautifulSoup(fb_html, "lxml")
+            fb_total_pages = get_total_pages(fb_soup)
+
+            for p in parse_listing_page(fb_html, category_name):
+                _add(p)
+
+            if fb_total_pages > 1 and len(products) < limit:
+                await asyncio.sleep(random.uniform(3, 6))
+                sem = asyncio.Semaphore(PAGE_CONCURRENCY)
+                extra_urls = [
+                    f"{fallback_url}{'&' if '?' in fallback_url else '?'}page={n}"
+                    for n in range(2, min(fb_total_pages + 1, MAX_PAGES + 1))
+                ]
+                tasks = [
+                    _fetch_listing_page(session, sem, url, category_name, fallback_url)
+                    for url in extra_urls
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for batch in results:
+                    if isinstance(batch, Exception):
+                        continue
+                    for p in batch:
+                        _add(p)
+                        if len(products) >= limit:
+                            break
+                    if len(products) >= limit:
+                        break
+
+            log.info(f"[{category_name}] [fallback/{sort_name}] +{len(products)} products so far")
+
+        if products:
+            log.info(f"[{category_name}] Fallback recovered {len(products)} products!")
 
     products = products[:limit]
     log.info(f"[{category_name}] {len(products)} unique products from listings.")
