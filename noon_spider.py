@@ -295,8 +295,8 @@ def scrape_group(group_index, limit=PRODUCT_LIMIT):
 
                 new_count = 0
                 for p in raw:
-                    if p and p["sku"] not in seen and len(all_products) < limit:
-                        seen.add(p["sku"])
+                    if p and p["product_id"] not in seen and len(all_products) < limit:
+                        seen.add(p["product_id"])
                         all_products.append(p)
                         new_count += 1
                         sort_count += 1
