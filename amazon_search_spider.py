@@ -351,12 +351,14 @@ def main():
 
     all_products = []
     seen_asins = set()
+    out_file = f"search_products_{args.slice}.json"
+    SAVE_EVERY = 20  # incremental save every N keywords
 
     for i, keyword in enumerate(my_keywords):
         if len(all_products) >= args.limit:
             break
 
-        print(f"\n  [{i+1}/{len(my_keywords)}] Keyword: '{keyword}'")
+        print(f"\n  [{i+1}/{len(my_keywords)}] Keyword: '{keyword}'", flush=True)
         before = len(all_products)
 
         new_prods = scrape_keyword(
@@ -366,13 +368,20 @@ def main():
 
         gained = len(all_products) - before
         if gained:
-            print(f"    +{gained} new (total: {len(all_products)})")
+            print(f"    +{gained} new (total: {len(all_products)})", flush=True)
+
+        # Incremental save every SAVE_EVERY keywords to avoid data loss on timeout
+        if (i + 1) % SAVE_EVERY == 0 or (i + 1) == len(my_keywords):
+            Path(out_file).write_text(
+                json.dumps(all_products, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+            print(f"    [checkpoint] Saved {len(all_products)} products → {out_file}", flush=True)
 
         # Pause between keywords
         time.sleep(random.uniform(5, 10))
 
-    # Save results
-    out_file = f"search_products_{args.slice}.json"
+    # Final save
     Path(out_file).write_text(
         json.dumps(all_products, ensure_ascii=False, indent=2),
         encoding="utf-8"
@@ -381,7 +390,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"  DONE: {len(all_products)} unique products")
     print(f"  Saved: {out_file}")
-    print(f"{'='*60}\n")
+    print(f"{'='*60}\n", flush=True)
 
 
 if __name__ == "__main__":
