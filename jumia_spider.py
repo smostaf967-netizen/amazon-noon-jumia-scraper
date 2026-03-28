@@ -633,7 +633,12 @@ def main():
         categories = fetch_categories(session)
         with open("categories.json", "w", encoding="utf-8") as f:
             json.dump(categories, f, ensure_ascii=False, indent=2)
-        print(json.dumps(categories, ensure_ascii=False))
+        # Output in GitHub Actions matrix format
+        matrix = [
+            {"cat_name": c["name"], "cat_url": c["url"], "cat_index": i}
+            for i, c in enumerate(categories)
+        ]
+        print(json.dumps(matrix, ensure_ascii=False))
 
     elif args.mode == "scrape":
         if not args.category_url:
