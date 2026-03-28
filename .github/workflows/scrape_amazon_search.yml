@@ -8,7 +8,7 @@ on:
         required: false
         default: '99999'
   schedule:
-    - cron: '30 1 * * *'
+    - cron: '33 1 * * *'
 
 permissions:
   actions: write
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   scrape:
-    name: "Search Keywords (slice 0/5)"
+    name: "Search Keywords (slice 1/4)"
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
@@ -34,15 +34,15 @@ jobs:
       - name: Restore checkpoint from previous run
         uses: actions/download-artifact@v4
         with:
-          name: search-checkpoint-0
+          name: search-checkpoint-1
           path: .
         continue-on-error: true
 
       - name: Show checkpoint status
         run: |
-          if [ -f checkpoint_0.json ]; then
+          if [ -f checkpoint_1.json ]; then
             echo "*** RESUMING from checkpoint ***"
-            cat checkpoint_0.json
+            cat checkpoint_1.json
           else
             echo "No checkpoint found — starting fresh"
           fi
@@ -50,19 +50,19 @@ jobs:
       - name: Stagger start
         run: sleep $((RANDOM % 30 + 10))
 
-      - name: Scrape keywords (slice 0 of 5)
+      - name: Scrape keywords (slice 1 of 4)
         run: |
           python amazon_search_spider.py \
-            --slice 0 \
-            --total-slices 5 \
+            --slice 1 \
+            --total-slices 4 \
             --limit ${{ github.event.inputs.limit || '99999' }}
 
       - name: Upload checkpoint (for resume on timeout)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: search-checkpoint-0
-          path: "checkpoint_0.json"
+          name: search-checkpoint-1
+          path: "checkpoint_1.json"
           overwrite: true
           if-no-files-found: ignore
 
@@ -71,7 +71,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: search-products
-          path: "search_products_0.json"
+          path: "search_products_1.json"
           overwrite: true
 
       - name: Convert JSON to CSV
@@ -82,7 +82,7 @@ jobs:
           sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
           data = []
-          f = pathlib.Path("search_products_0.json")
+          f = pathlib.Path("search_products_1.json")
           if f.exists():
               data = json.loads(f.read_text(encoding="utf-8"))
           print(f"Products: {len(data)}")
@@ -124,7 +124,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -f checkpoint_0.json ]; then
+          if [ -f checkpoint_1.json ]; then
             echo "Checkpoint exists — keywords not finished. Triggering retry..."
             gh workflow run scrape_amazon_search.yml
             echo "Retry triggered!"
