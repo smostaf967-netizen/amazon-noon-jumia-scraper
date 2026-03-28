@@ -1,4 +1,4 @@
-name: Amazon Node Scraper - Account 1 (20 nodes)
+name: Amazon Node Scraper - Account 1 (25 nodes)
 
 on:
   workflow_dispatch:
@@ -19,26 +19,31 @@ jobs:
       max-parallel: 20
       matrix:
         include:
-          - { node_id: "18018102031",  node_name: "Cat8102031" }
-          - { node_id: "18017874031",  node_name: "Agricultural Vehicle Parts & Equipment" }
-          - { node_id: "18022275031",  node_name: "Calendars, Planners & Personal Organizers" }
-          - { node_id: "21826029031",  node_name: "Cat6029031" }
-          - { node_id: "18020637031",  node_name: "Cat0637031" }
-          - { node_id: "21832878031",  node_name: "Cat2878031" }
-          - { node_id: "21845327031",  node_name: "Cat5327031" }
-          - { node_id: "27972173031",  node_name: "Cat2173031" }
-          - { node_id: "21832887031",  node_name: "Cat2887031" }
-          - { node_id: "21845209031",  node_name: "Cat5209031" }
-          - { node_id: "21845337031",  node_name: "Cat5337031" }
-          - { node_id: "21845414031",  node_name: "Cat5414031" }
-          - { node_id: "21858008031",  node_name: "Cat8008031" }
-          - { node_id: "212401101031",  node_name: "Cat1101031" }
-          - { node_id: "49987947031",  node_name: "Cat7947031" }
-          - { node_id: "21857955031",  node_name: "Cat7955031" }
-          - { node_id: "21857878031",  node_name: "Cat7878031" }
-          - { node_id: "21857974031",  node_name: "Cat7974031" }
-          - { node_id: "21832982031",  node_name: "Cat2982031" }
-          - { node_id: "21833220031",  node_name: "Cat3220031" }
+          - { node_id: "18018102031",  node_name: "node_18018102031" }
+          - { node_id: "18017988031",  node_name: "node_18017988031" }
+          - { node_id: "18021875031",  node_name: "Baby & Child Care" }
+          - { node_id: "18018165031",  node_name: "node_18018165031" }
+          - { node_id: "18018045031",  node_name: "node_18018045031" }
+          - { node_id: "21845410031",  node_name: "node_21845410031" }
+          - { node_id: "21845335031",  node_name: "node_21845335031" }
+          - { node_id: "21845180031",  node_name: "node_21845180031" }
+          - { node_id: "21832873031",  node_name: "node_21832873031" }
+          - { node_id: "21868933031",  node_name: "node_21868933031" }
+          - { node_id: "82771437031",  node_name: "node_82771437031" }
+          - { node_id: "21857887031",  node_name: "node_21857887031" }
+          - { node_id: "21857925031",  node_name: "node_21857925031" }
+          - { node_id: "21845418031",  node_name: "node_21845418031" }
+          - { node_id: "49987991031",  node_name: "node_49987991031" }
+          - { node_id: "26136083031",  node_name: "node_26136083031" }
+          - { node_id: "49987947031",  node_name: "node_49987947031" }
+          - { node_id: "21857955031",  node_name: "node_21857955031" }
+          - { node_id: "21833210031",  node_name: "node_21833210031" }
+          - { node_id: "49987963031",  node_name: "node_49987963031" }
+          - { node_id: "21833213031",  node_name: "node_21833213031" }
+          - { node_id: "21845202031",  node_name: "node_21845202031" }
+          - { node_id: "21833212031",  node_name: "node_21833212031" }
+          - { node_id: "21863792031",  node_name: "Appliances" }
+          - { node_id: "22624924031",  node_name: "Amazon App Download" }
 
     steps:
       - uses: actions/checkout@v4
@@ -60,89 +65,78 @@ jobs:
             --node_id   ${{ matrix.node_id }} \
             --node_name "${{ matrix.node_name }}" \
             --limit     ${{ github.event.inputs.limit || '99999' }}
+        timeout-minutes: 90
 
-      - name: Upload results
+      - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "node-${{ matrix.node_id }}"
-          path: "node_${{ matrix.node_id }}.json"
+          name: node-${{ matrix.node_id }}
+          path: "node_*_products.csv"
+          if-no-files-found: warn
 
   export:
-    name: Merge & Export CSV
-    runs-on: ubuntu-latest
+    name: "Merge & Export CSV"
     needs: scrape
     if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Download all node artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: node-*
-          merge-multiple: true
+          path: artifacts/
 
-      - name: Merge JSON → CSV + summary
+      - name: Merge CSVs
         run: |
-          python - <<'EOF'
-          import json, glob, csv, sys
-          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-          merged = []
-          for fname in sorted(glob.glob("node_*.json")):
-              try:
-                  data = json.load(open(fname, encoding="utf-8"))
-                  merged.extend(data)
-                  print(f"{fname}: {len(data)} products")
-              except Exception as e:
-                  print(f"{fname}: ERROR - {e}")
-
-          # Deduplicate by ASIN globally
-          seen = set()
-          unique = []
-          for p in merged:
-              if p["asin"] not in seen:
-                  seen.add(p["asin"])
-                  unique.append(p)
-
-          print(f"\nTotal raw : {len(merged)}")
-          print(f"Unique    : {len(unique)}  (after global ASIN dedup)")
-
-          columns = [
-              "platform", "asin", "title", "brand", "category",
-              "current_price", "original_price", "discount",
-              "rating", "reviews_count",
-              "prime_eligible", "amazon_choice", "sponsored",
-              "main_image", "product_url", "scraped_at",
-          ]
-          with open("amazon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
-              writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+          python -c "
+          import csv, pathlib, sys
+          sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+          rows, seen, header = [], set(), None
+          for f in sorted(pathlib.Path('artifacts').rglob('*.csv')):
+              with open(f, encoding='utf-8-sig') as fh:
+                  reader = csv.DictReader(fh)
+                  if header is None: header = reader.fieldnames
+                  for r in reader:
+                      asin = r.get('product_id', '')
+                      if asin and asin not in seen:
+                          seen.add(asin)
+                          rows.append(r)
+          print(f'Merged {len(rows)} unique products')
+          with open('amazon_products_nodes.csv', 'w', encoding='utf-8-sig', newline='') as fh:
+              writer = csv.DictWriter(fh, fieldnames=header or [], extrasaction='ignore')
               writer.writeheader()
-              writer.writerows(unique)
-          print("Saved: amazon_products.csv")
-          EOF
+              writer.writerows(rows)
+          "
 
-      - name: Upload final CSV
+      - name: Upload merged CSV
         uses: actions/upload-artifact@v4
         with:
-          name: amazon-products-nodes
-          path: amazon_products.csv
+          name: amazon-nodes-merged
+          path: amazon_products_nodes.csv
 
       - name: Push to master repo
+        if: always()
         env:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
-          git clone https://${MASTER_TOKEN}@github.com/khaledali45947-dev/scraped-products-master.git master_repo
-          mkdir -p master_repo/data/account1
-          cp amazon_products.csv master_repo/data/account1/amazon_products_nodes.csv 2>/dev/null || true
+          if [ -z "$MASTER_TOKEN" ]; then echo "No MASTER_REPO_TOKEN"; exit 0; fi
+          git clone https://${MASTER_TOKEN}@github.com/${MASTER_OWNER}/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1/
+          cp amazon_products_nodes.csv master_repo/data/account1/amazon_products_nodes.csv
           cd master_repo
-          git config user.email "scraper-bot@github.com"
-          git config user.name "Scraper Bot"
-          git add data/
-          if ! git diff --staged --quiet; then
-            git commit -m "Node scraper test from account1 - $(date -u +%Y-%m-%d)"
-            for i in 1 2 3; do
-              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
-            done
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update amazon nodes from account1 - $(date +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && echo "Pushed OK" && exit 0
+            sleep $((RANDOM % 10 + 5))
+          done
