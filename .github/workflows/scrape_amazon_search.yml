@@ -1,0 +1,90 @@
+name: Amazon Search Scraper - Account 1
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max products total'
+        required: false
+        default: '99999'
+  schedule:
+    - cron: '30 1 * * *'
+
+jobs:
+  scrape:
+    name: "Search Keywords (slice 0/5)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install curl-cffi scrapy
+
+      - name: Stagger start
+        run: sleep $((RANDOM % 30 + 10))
+
+      - name: Scrape keywords (slice 0 of 5)
+        run: |
+          python amazon_search_spider.py \
+            --slice 0 \
+            --total-slices 5 \
+            --limit ${{ github.event.inputs.limit || '99999' }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-products
+          path: "search_products_0.json"
+
+      - name: Convert JSON to CSV
+        if: always()
+        run: |
+          python - <<'EOF'
+          import json, csv, sys, pathlib
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+          data = []
+          f = pathlib.Path("search_products_0.json")
+          if f.exists():
+              data = json.loads(f.read_text(encoding="utf-8"))
+          print(f"Products: {len(data)}")
+
+          if data:
+              columns = list(data[0].keys())
+              with open("amazon_products_search.csv", "w", encoding="utf-8-sig", newline="") as out:
+                  writer = csv.DictWriter(out, fieldnames=columns, extrasaction="ignore")
+                  writer.writeheader()
+                  writer.writerows(data)
+              print("Saved: amazon_products_search.csv")
+          EOF
+
+      - name: Push to master repo
+        if: always()
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+        run: |
+          if [ ! -f amazon_products_search.csv ]; then
+            echo "No CSV to push"
+            exit 0
+          fi
+          git clone https://${MASTER_TOKEN}@github.com/khaledali45947-dev/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1
+          cp amazon_products_search.csv master_repo/data/account1/amazon_products_search.csv
+          cd master_repo
+          git config user.email "scraper-bot@github.com"
+          git config user.name "Scraper Bot"
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "Search scraper from account1 - $(date -u +%Y-%m-%d)"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
+            done
+          fi
