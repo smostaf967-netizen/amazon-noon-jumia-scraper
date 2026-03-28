@@ -247,8 +247,8 @@ def scrape_group(group_index, limit=PRODUCT_LIMIT):
         for p in products:
             if len(all_products) >= limit:
                 break
-            if p["asin"] not in seen_asins:
-                seen_asins.add(p["asin"])
+            if p["product_id"] not in seen_asins:
+                seen_asins.add(p["product_id"])
                 all_products.append(p)
                 new_count += 1
 
