@@ -13,7 +13,7 @@ import random
 import os
 from datetime import datetime
 
-PRODUCT_LIMIT = 5000  # per group — 43 groups × 5000 = up to 215,000 products
+PRODUCT_LIMIT = 99999  # unlimited — جيب كل اللي تقدر عليه
 
 # Sort orders — كل sort بيجيب منتجات مختلفة
 NOON_SORT_ORDERS = [
