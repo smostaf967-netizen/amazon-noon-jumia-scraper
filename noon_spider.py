@@ -23,6 +23,27 @@ NOON_SORT_ORDERS = [
     ("price_high",  "?sortBy=price_high"),
 ]
 
+# Price bands in EGP — Noon uses ?price[from]=X&price[to]=Y
+# 15 bands بدل 9 عشان نكتشف منتجات أكتر (خصوصاً الفئات الكبيرة)
+NOON_PRICE_BANDS = [
+    ("all",          None,    None),      # no price filter first
+    ("0-25",         0,       25),
+    ("25-50",        25,      50),
+    ("50-100",       50,      100),
+    ("100-150",      100,     150),
+    ("150-200",      150,     200),
+    ("200-300",      200,     300),
+    ("300-500",      300,     500),
+    ("500-750",      500,     750),
+    ("750-1000",     750,     1000),
+    ("1000-1500",    1000,    1500),
+    ("1500-2000",    1500,    2000),
+    ("2000-3500",    2000,    3500),
+    ("3500-5000",    3500,    5000),
+    ("5000-10000",   5000,    10000),
+    ("10000+",       10000,   None),
+]
+
 # ── 43 groups covering all major Noon Egypt categories ────────────────────────
 CATEGORY_GROUPS = {
     # Electronics
@@ -183,6 +204,65 @@ def build_product(item, cat_name):
 
 # ── Page scraper (Playwright) ─────────────────────────────────────────────────
 
+def _parse_dom_fallback(page, cat_name):
+    """Fallback: extract products from visible HTML DOM when RSC parsing fails."""
+    products = []
+    try:
+        cards = page.query_selector_all('[data-qa="product-card"], div[class*="productContainer"], article[class*="product"]')
+        if not cards:
+            cards = page.query_selector_all('a[href*="/p/"]')
+        for card in cards:
+            try:
+                href = card.get_attribute("href") or ""
+                # Extract SKU from URL like /egypt-en/product-slug/p/N12345678V1/
+                sku_match = re.search(r'/p/([A-Z0-9]+)', href)
+                sku = sku_match.group(1) if sku_match else ""
+                title_el = card.query_selector('[data-qa="product-name"], h2, span[class*="title"], span[class*="name"]')
+                title = title_el.inner_text().strip() if title_el else ""
+                price_el = card.query_selector('[data-qa="product-price"], span[class*="price"], strong')
+                price_text = price_el.inner_text().strip() if price_el else ""
+                price_clean = re.sub(r'[^\d.]', '', price_text.replace(',', ''))
+                if not sku or not title:
+                    continue
+                slug = re.sub(r'[^a-z0-9-]', '-', title.lower().replace(' ', '-'))[:60]
+                products.append({
+                    "platform": "noon",
+                    "product_id": sku,
+                    "title": title,
+                    "brand": "",
+                    "category": cat_name,
+                    "current_price": f"{price_clean} EGP" if price_clean else "",
+                    "original_price": "",
+                    "discount": "",
+                    "rating": "",
+                    "reviews_count": "",
+                    "availability": "In Stock",
+                    "seller": "",
+                    "express_delivery": "",
+                    "platform_badge": "",
+                    "sponsored": "",
+                    "main_image": "",
+                    "all_images": "",
+                    "description": "",
+                    "weight": "",
+                    "dimensions": "",
+                    "model_number": "",
+                    "country_of_origin": "",
+                    "warranty": "",
+                    "tech_specs": "",
+                    "variations": "",
+                    "ships_from": "",
+                    "delivery_date": "",
+                    "product_url": f"https://www.noon.com{href}" if href.startswith("/") else href,
+                    "scraped_at": datetime.now().isoformat(),
+                })
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"  [DOM fallback error] {e}", flush=True)
+    return products
+
+
 def _scrape_page(page, url, cat_name):
     from playwright.sync_api import TimeoutError as PWTimeout
     try:
@@ -194,11 +274,11 @@ def _scrape_page(page, url, cat_name):
         return []
 
     # Wait for content and scroll to trigger lazy loading
-    time.sleep(3)
+    time.sleep(random.uniform(3, 5))
     page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-    time.sleep(1)
+    time.sleep(random.uniform(1.5, 3))
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    time.sleep(2)
+    time.sleep(random.uniform(2, 4))
 
     html = page.content()
     hits = extract_hits(html)
@@ -207,6 +287,12 @@ def _scrape_page(page, url, cat_name):
         body_text = page.evaluate("document.body.innerText")
         if "could not find" in body_text.lower() or "went wrong" in body_text.lower():
             print("  [WARN] Noon returned error page")
+        else:
+            # Fallback: try parsing products from visible DOM
+            dom_products = _parse_dom_fallback(page, cat_name)
+            if dom_products:
+                print(f"  [DOM fallback] Recovered {len(dom_products)} products from HTML", flush=True)
+                return dom_products
 
     return [build_product(h, cat_name) for h in hits if isinstance(h, dict)]
 
@@ -268,48 +354,74 @@ def scrape_group(group_index, limit=PRODUCT_LIMIT):
         print("  Warming up on homepage...")
         try:
             page.goto("https://www.noon.com/egypt-en/", wait_until="domcontentloaded", timeout=30_000)
-            time.sleep(random.uniform(2, 3))
+            time.sleep(random.uniform(4, 7))
             print("  Warmup OK")
         except Exception as e:
             print(f"  Warmup failed: {e} (continuing)")
 
-        # Loop through sort orders
-        for sort_name, sort_suffix in NOON_SORT_ORDERS:
+        # Loop through price bands × sort orders
+        for band_name, price_min, price_max in NOON_PRICE_BANDS:
             if len(all_products) >= limit:
                 break
 
-            sort_url = base_url + sort_suffix
-            print(f"\n  [Sort: {sort_name}]")
-            sort_count = 0
+            # Build price filter URL params
+            if price_min is None:
+                price_suffix = ""
+            elif price_max is None:
+                price_suffix = f"?price[from]={price_min}"
+            else:
+                price_suffix = f"?price[from]={price_min}&price[to]={price_max}"
 
-            for page_num in range(1, 200):
+            band_before = len(all_products)
+            print(f"\n  [Price Band: {band_name} EGP]")
+
+            for sort_name, sort_suffix in NOON_SORT_ORDERS:
                 if len(all_products) >= limit:
                     break
 
-                sep = "&" if "?" in sort_suffix else "?"
-                url = sort_url if page_num == 1 else f"{sort_url}{sep}page={page_num}"
-                print(f"  Page {page_num}: {url}")
+                # Combine price + sort params
+                if price_suffix and sort_suffix:
+                    combined = price_suffix + "&" + sort_suffix.lstrip("?")
+                elif price_suffix:
+                    combined = price_suffix
+                else:
+                    combined = sort_suffix
 
-                raw = _scrape_page(page, url, cat_name)
-                print(f"  RSC hits: {len(raw)}")
+                combo_url = base_url + combined
+                print(f"\n    [{band_name}/{sort_name}]")
+                sort_count = 0
 
-                new_count = 0
-                for p in raw:
-                    if p and p["product_id"] not in seen and len(all_products) < limit:
-                        seen.add(p["product_id"])
-                        all_products.append(p)
-                        new_count += 1
-                        sort_count += 1
+                for page_num in range(1, 200):
+                    if len(all_products) >= limit:
+                        break
 
-                print(f"  +{new_count} new  (total {len(all_products)}/{limit})")
+                    sep = "&" if "?" in combined else "?"
+                    url = combo_url if page_num == 1 else f"{combo_url}{sep}page={page_num}"
+                    print(f"    Page {page_num}: {url}")
 
-                if new_count == 0:
-                    print(f"  Sort '{sort_name}' exhausted at page {page_num}")
-                    break
+                    raw = _scrape_page(page, url, cat_name)
+                    print(f"    RSC hits: {len(raw)}")
 
-                time.sleep(random.uniform(1.5, 3))
+                    new_count = 0
+                    for p in raw:
+                        if p and p["product_id"] not in seen and len(all_products) < limit:
+                            seen.add(p["product_id"])
+                            all_products.append(p)
+                            new_count += 1
+                            sort_count += 1
 
-            print(f"  Sort '{sort_name}' done: {sort_count} new products")
+                    print(f"    +{new_count} new  (total {len(all_products)}/{limit})")
+
+                    if new_count == 0:
+                        print(f"    Sort '{sort_name}' exhausted at page {page_num}")
+                        break
+
+                    time.sleep(random.uniform(4, 8))
+
+                print(f"    Sort '{sort_name}' done: {sort_count} new products")
+
+            band_new = len(all_products) - band_before
+            print(f"  Band '{band_name}' done: {band_new} new products")
 
         browser.close()
 

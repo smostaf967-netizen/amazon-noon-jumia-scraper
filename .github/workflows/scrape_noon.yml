@@ -1,14 +1,10 @@
-name: Noon Scraper - Account 1 (Groups 0-6)
+name: Noon Scraper - Account 1 (Groups 0-8)
 
 on:
   schedule:
-    - cron: '0 2 * * *'   # 4:00 AM Egypt time
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      reason:
-        description: 'Reason for manual trigger'
-        required: false
-        default: 'Manual run'
       limit:
         description: 'Max products per group'
         required: false
@@ -16,13 +12,13 @@ on:
 
 jobs:
   scrape:
-    name: Scrape Group ${{ matrix.group_index }}
+    name: "Scrape Group ${{ matrix.group_index }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     continue-on-error: true
     strategy:
       matrix:
-        group_index: [0,1,2,3,4,5,6]
+        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8]
       fail-fast: false
       max-parallel: 20
 
@@ -34,39 +30,32 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: pip install playwright playwright-stealth
 
-      - name: Install Playwright browsers
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1
+
+      - name: Install Playwright browser
         run: playwright install chromium --with-deps
+        timeout-minutes: 10
 
       - name: Stagger start
         run: sleep $((RANDOM % 20 + 5))
 
-      - name: Start virtual display
-        run: |
-          sudo apt-get install -y xvfb > /dev/null 2>&1
-          Xvfb :99 -screen 0 1920x1080x24 &
-          echo "DISPLAY=:99" >> $GITHUB_ENV
-
-      - name: Run spider (Group ${{ matrix.group_index }})
-        id: scrape
-        env:
-          DISPLAY: :99
+      - name: "Scrape Group ${{ matrix.group_index }}"
         run: python noon_spider.py --group_index ${{ matrix.group_index }} --limit ${{ github.event.inputs.limit || '99999' }}
-
-      - name: Log blocked group
-        if: failure()
-        run: echo "Group ${{ matrix.group_index }} | blocked/failed" >> blocked.log
+        timeout-minutes: 160
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noon-products-${{ matrix.group_index }}
-          path: |
-            products_${{ matrix.group_index }}.json
-            blocked.log
+          name: "noon-products-${{ matrix.group_index }}"
+          path: "products_${{ matrix.group_index }}.json"
 
   export:
     name: Merge & Export CSV
@@ -87,37 +76,37 @@ jobs:
       - name: Merge JSON -> CSV
         run: |
           python - <<'EOF'
-          import json, glob, csv
+          import json, glob, csv, sys
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
           merged = []
           for fname in sorted(glob.glob("products_*.json")):
-              with open(fname, encoding="utf-8") as f:
-                  try:
-                      data = json.load(f)
-                      merged.extend(data)
-                      print(f"{fname}: {len(data)} products")
-                  except Exception as e:
-                      print(f"{fname}: ERROR - {e}")
+              try:
+                  data = json.load(open(fname, encoding="utf-8"))
+                  merged.extend(data)
+                  print(f"{fname}: {len(data)} products")
+              except Exception as e:
+                  print(f"{fname}: ERROR - {e}")
 
-          print(f"\nTotal: {len(merged)} products")
+          seen = set()
+          unique = []
+          for p in merged:
+              pid = p.get("product_id", "")
+              if pid and pid not in seen:
+                  seen.add(pid)
+                  unique.append(p)
+              elif not pid:
+                  unique.append(p)
 
-          columns = [
-              "platform", "product_id", "title", "brand", "category",
-              "current_price", "original_price", "discount",
-              "rating", "reviews_count", "availability",
-              "seller", "express_delivery", "platform_badge", "sponsored",
-              "main_image", "all_images", "description", "weight", "dimensions",
-              "model_number", "country_of_origin", "warranty", "tech_specs", "variations",
-              "ships_from", "delivery_date", "product_url", "scraped_at",
-          ]
+          print(f"\nTotal: {len(merged)}, Unique: {len(unique)}")
 
-          with open("noon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
-              writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
-              writer.writeheader()
-              for item in merged:
-                  writer.writerow(item)
-
-          print("CSV saved: noon_products.csv")
+          if unique:
+              columns = list(unique[0].keys())
+              with open("noon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
+                  writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+                  writer.writeheader()
+                  writer.writerows(unique)
+              print("Saved: noon_products.csv")
           EOF
 
       - name: Push to master repo
