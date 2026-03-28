@@ -1,0 +1,149 @@
+name: Amazon Related Products - Account 1
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  scrape:
+    name: "Related slice ${{ matrix.slice }}/40"
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include:
+          - { slice: 0 }
+          - { slice: 1 }
+          - { slice: 2 }
+          - { slice: 3 }
+          - { slice: 4 }
+          - { slice: 5 }
+          - { slice: 6 }
+          - { slice: 7 }
+          - { slice: 8 }
+          - { slice: 9 }
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install curl-cffi scrapy
+      - name: Download checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: related-checkpoint-${{ matrix.slice }}
+          path: .
+        continue-on-error: true
+      - name: Show checkpoint status
+        run: |
+          if [ -f related_checkpoint_${{ matrix.slice }}.json ]; then
+            echo "RESUMING from checkpoint"
+            python -c "import json; d=json.load(open('related_checkpoint_${{ matrix.slice }}.json')); print(f'Products: {len(d.get("products",[]))}, Visited: {len(d.get("visited",[]))}, Queue: {len(d.get("queue",[]))}')"
+          else
+            echo "No checkpoint — starting fresh"
+          fi
+      - name: Download existing ASINs from master
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
+        run: |
+          if [ ! -f related_checkpoint_${{ matrix.slice }}.json ]; then
+            if [ -n "$MASTER_TOKEN" ]; then
+              git clone --depth 1 https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git _master 2>/dev/null || true
+              if [ -d _master/data ]; then
+                find _master/data -name "*.csv" -exec cp {} . \;
+                echo "Copied existing CSVs for seed ASINs"
+              fi
+              rm -rf _master
+            fi
+          fi
+      - name: Scrape related products
+        run: |
+          python amazon_related_spider.py \
+            --slice ${{ matrix.slice }} \
+            --total-slices 40 \
+            --limit 99999
+        timeout-minutes: 330
+      - name: Upload checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: related-checkpoint-${{ matrix.slice }}
+          path: related_checkpoint_${{ matrix.slice }}.json
+          overwrite: true
+          if-no-files-found: ignore
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: related-products-${{ matrix.slice }}
+          path: related_products_${{ matrix.slice }}.json
+          if-no-files-found: ignore
+
+  export:
+    name: Merge and Push
+    needs: scrape
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: related-products-*
+          merge-multiple: true
+      - name: Merge to CSV
+        run: |
+          python -c "
+          import json, csv, glob, sys
+          sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+          products, seen = [], set()
+          for f in sorted(glob.glob('related_products_*.json')):
+              try:
+                  data = json.loads(open(f, encoding='utf-8').read())
+                  for p in data:
+                      asin = p.get('asin','')
+                      if asin and asin not in seen:
+                          seen.add(asin)
+                          products.append(p)
+                  print(f'{f}: {len(data)} products')
+              except: pass
+          print(f'Total unique: {len(products)}')
+          if not products: sys.exit(0)
+          cols = list(products[0].keys())
+          with open('amazon_products_related.csv', 'w', encoding='utf-8-sig', newline='') as f:
+              w = csv.DictWriter(f, fieldnames=cols, extrasaction='ignore')
+              w.writeheader()
+              w.writerows(products)
+          print(f'Saved amazon_products_related.csv')
+          "
+      - name: Push to master
+        if: always()
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
+        run: |
+          if [ -z "$MASTER_TOKEN" ] || [ ! -f amazon_products_related.csv ]; then exit 0; fi
+          git clone https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1/
+          cp amazon_products_related.csv master_repo/data/account1/amazon_products_related.csv
+          cd master_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update related products from account1 - $(date +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && echo "Pushed OK" && break || sleep $((RANDOM % 10 + 5))
+          done
