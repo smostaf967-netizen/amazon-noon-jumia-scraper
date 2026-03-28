@@ -1,20 +1,41 @@
-name: Noon Scraper - Account 1 (slice 0/4)
+name: Noon Scraper - Account 1 (20 parallel)
 
 on:
   workflow_dispatch:
-    inputs:
-      limit:
-        description: Max products total
-        required: false
-        default: '99999'
   schedule:
     - cron: '0 2 * * *'
 
 jobs:
   scrape:
-    name: Scrape Noon (slice 0)
+    name: "Noon slice ${{ matrix.slice }}/80"
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 60
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          - { slice: 0 }
+          - { slice: 1 }
+          - { slice: 2 }
+          - { slice: 3 }
+          - { slice: 4 }
+          - { slice: 5 }
+          - { slice: 6 }
+          - { slice: 7 }
+          - { slice: 8 }
+          - { slice: 9 }
+          - { slice: 10 }
+          - { slice: 11 }
+          - { slice: 12 }
+          - { slice: 13 }
+          - { slice: 14 }
+          - { slice: 15 }
+          - { slice: 16 }
+          - { slice: 17 }
+          - { slice: 18 }
+          - { slice: 19 }
 
     steps:
       - uses: actions/checkout@v4
@@ -25,53 +46,69 @@ jobs:
       - name: Install dependencies
         run: pip install curl-cffi
       - name: Stagger start
-        run: sleep $((RANDOM % 30 + 5))
-      - name: Scrape Noon categories
-        run: |
-          python noon_spider.py \
-            --slice 0 \
-            --total-slices 4 \
-            --limit ${{ github.event.inputs.limit || '99999' }}
-        timeout-minutes: 280
-      - name: Upload results
+        run: sleep $((RANDOM % 10 + 2))
+      - name: Scrape
+        run: python noon_spider.py --slice ${{ matrix.slice }} --total-slices 80 --limit 99999
+        timeout-minutes: 50
+      - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noon-products
+          name: noon-slice-${{ matrix.slice }}
           path: noon_products_*.json
           if-no-files-found: warn
-      - name: Convert to CSV and push
-        if: always()
-        env:
-          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
-          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
+
+  export:
+    name: Merge and Push
+    needs: scrape
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download all
+        uses: actions/download-artifact@v4
+        with:
+          pattern: noon-slice-*
+          merge-multiple: true
+      - name: Merge
         run: |
           python -c "
-          import json, csv, glob, sys, pathlib
+          import json, csv, glob, sys
           sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-          products = []
-          for f in glob.glob('noon_products_*.json'):
-              products.extend(json.loads(pathlib.Path(f).read_text(encoding='utf-8')))
-          print(f'Total: {len(products)} products')
+          products, seen = [], set()
+          for f in sorted(glob.glob('noon_products_*.json')):
+              try:
+                  data = json.loads(open(f, encoding='utf-8').read())
+                  for p in data:
+                      pid = p.get('product_id','')
+                      if pid and pid not in seen:
+                          seen.add(pid)
+                          products.append(p)
+                  print(f'{f}: {len(data)} raw, total unique: {len(products)}')
+              except: pass
+          print(f'TOTAL: {len(products)} unique products')
           if not products: sys.exit(0)
           cols = list(products[0].keys())
           with open('noon_products.csv', 'w', encoding='utf-8-sig', newline='') as f:
               w = csv.DictWriter(f, fieldnames=cols, extrasaction='ignore')
               w.writeheader()
               w.writerows(products)
-          print(f'Saved noon_products.csv')
           "
-          if [ -z "$MASTER_TOKEN" ]; then echo "No token"; exit 0; fi
-          if [ ! -f noon_products.csv ]; then echo "No CSV"; exit 0; fi
-          git clone https://${MASTER_TOKEN}@github.com/${MASTER_OWNER}/scraped-products-master.git master_repo
-          mkdir -p master_repo/data/account1/
-          cp noon_products.csv master_repo/data/account1/noon_products.csv
-          cd master_repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Update noon from account1 - $(date +%Y-%m-%d)"
-          for i in 1 2 3 4 5; do
-            git pull --rebase origin main && git push && echo "Pushed OK" && break || sleep $((RANDOM % 10 + 5))
-          done
+      - name: Push
+        if: always()
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
+        run: |
+          if [ -z "$MASTER_TOKEN" ] || [ ! -f noon_products.csv ]; then exit 0; fi
+          git clone https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git mr
+          mkdir -p mr/data/account1/
+          cp noon_products.csv mr/data/account1/noon_products.csv
+          cd mr && git config user.name "bot" && git config user.email "bot@noreply.com"
+          git add . && git diff --cached --quiet && exit 0
+          git commit -m "Noon account1 - $(date +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do git pull --rebase origin main && git push && break || sleep 10; done
