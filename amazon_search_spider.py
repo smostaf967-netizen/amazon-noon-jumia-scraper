@@ -352,8 +352,28 @@ def main():
     all_products = []
     seen_asins = set()
     out_file = f"search_products_{args.slice}.json"
+    checkpoint_file = f"checkpoint_{args.slice}.json"
+    start_index = 0
+
+    # ── Resume from checkpoint if previous run was interrupted ────────────
+    if Path(checkpoint_file).exists():
+        try:
+            ckpt = json.loads(Path(checkpoint_file).read_text(encoding="utf-8"))
+            start_index = ckpt.get("next_keyword_index", 0)
+            saved_asins = set(ckpt.get("seen_asins", []))
+            # Load previously saved products
+            if Path(out_file).exists():
+                all_products = json.loads(Path(out_file).read_text(encoding="utf-8"))
+                seen_asins = saved_asins
+            print(f"  *** RESUMING from keyword {start_index}/{len(my_keywords)} "
+                  f"with {len(all_products)} existing products ***", flush=True)
+        except Exception as e:
+            print(f"  Warning: could not load checkpoint: {e}", flush=True)
+            start_index = 0
 
     for i, keyword in enumerate(my_keywords):
+        if i < start_index:
+            continue
         if len(all_products) >= args.limit:
             break
 
@@ -369,14 +389,27 @@ def main():
         if gained:
             print(f"    +{gained} new (total: {len(all_products)})", flush=True)
 
-        # Save after EVERY keyword — zero data loss on timeout/cancellation
+        # Save products + checkpoint after EVERY keyword
         Path(out_file).write_text(
             json.dumps(all_products, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        Path(checkpoint_file).write_text(
+            json.dumps({
+                "next_keyword_index": i + 1,
+                "seen_asins": list(seen_asins),
+                "total_products": len(all_products),
+            }, ensure_ascii=False),
             encoding="utf-8"
         )
 
         # Pause between keywords
         time.sleep(random.uniform(5, 10))
+
+    # Clean up checkpoint on successful completion
+    if Path(checkpoint_file).exists():
+        Path(checkpoint_file).unlink()
+        print("  Checkpoint cleared (all keywords done).", flush=True)
 
     print(f"\n{'='*60}")
     print(f"  DONE: {len(all_products)} unique products")

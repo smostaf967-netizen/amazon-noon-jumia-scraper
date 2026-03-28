@@ -10,6 +10,10 @@ on:
   schedule:
     - cron: '30 1 * * *'
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   scrape:
     name: "Search Keywords (slice 0/5)"
@@ -27,6 +31,22 @@ jobs:
       - name: Install dependencies
         run: pip install curl-cffi scrapy
 
+      - name: Restore checkpoint from previous run
+        uses: actions/download-artifact@v4
+        with:
+          name: search-checkpoint-0
+          path: .
+        continue-on-error: true
+
+      - name: Show checkpoint status
+        run: |
+          if [ -f checkpoint_0.json ]; then
+            echo "*** RESUMING from checkpoint ***"
+            cat checkpoint_0.json
+          else
+            echo "No checkpoint found — starting fresh"
+          fi
+
       - name: Stagger start
         run: sleep $((RANDOM % 30 + 10))
 
@@ -37,12 +57,22 @@ jobs:
             --total-slices 5 \
             --limit ${{ github.event.inputs.limit || '99999' }}
 
+      - name: Upload checkpoint (for resume on timeout)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-checkpoint-0
+          path: "checkpoint_0.json"
+          overwrite: true
+          if-no-files-found: ignore
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: search-products
           path: "search_products_0.json"
+          overwrite: true
 
       - name: Convert JSON to CSV
         if: always()
@@ -87,4 +117,17 @@ jobs:
             for i in 1 2 3; do
               git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
             done
+          fi
+
+      - name: Self-retry if not finished
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f checkpoint_0.json ]; then
+            echo "Checkpoint exists — keywords not finished. Triggering retry..."
+            gh workflow run scrape_amazon_search.yml
+            echo "Retry triggered!"
+          else
+            echo "All keywords completed — no retry needed."
           fi
