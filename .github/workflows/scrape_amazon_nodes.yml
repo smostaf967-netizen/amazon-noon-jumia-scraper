@@ -1,4 +1,4 @@
-name: Amazon Node Scraper - Account 1 (24 nodes)
+name: Amazon Node Scraper - Account 1 (20 nodes)
 
 on:
   workflow_dispatch:
@@ -19,32 +19,26 @@ jobs:
       max-parallel: 20
       matrix:
         include:
-          - { node_id: "18018102031",  node_name: "Cat8102031" }
-          - { node_id: "18017874031",  node_name: "Agricultural Vehicle Parts & Equipment" }
-          - { node_id: "18022275031",  node_name: "Calendars, Planners & Personal Organizers" }
-          - { node_id: "21826029031",  node_name: "Cat6029031" }
-          - { node_id: "18020637031",  node_name: "Cat0637031" }
-          - { node_id: "21832878031",  node_name: "Cat2878031" }
-          - { node_id: "21845327031",  node_name: "Cat5327031" }
-          - { node_id: "27972173031",  node_name: "Cat2173031" }
-          - { node_id: "21832887031",  node_name: "Cat2887031" }
-          - { node_id: "21845209031",  node_name: "Cat5209031" }
-          - { node_id: "21845337031",  node_name: "Cat5337031" }
-          - { node_id: "21845414031",  node_name: "Cat5414031" }
-          - { node_id: "21858008031",  node_name: "Cat8008031" }
-          - { node_id: "212401101031",  node_name: "Cat1101031" }
-          - { node_id: "49987947031",  node_name: "Cat7947031" }
-          - { node_id: "21857955031",  node_name: "Cat7955031" }
-          - { node_id: "21857878031",  node_name: "Cat7878031" }
-          - { node_id: "21857974031",  node_name: "Cat7974031" }
-          - { node_id: "21832982031",  node_name: "Cat2982031" }
-          - { node_id: "21833220031",  node_name: "Cat3220031" }
+          - { node_id: "18018102031",   node_name: "Cat8102031" }
+          - { node_id: "21832909031",   node_name: "Cat2909031" }
+          - { node_id: "21820640031",   node_name: "Cat0640031" }
+          - { node_id: "21826030031",   node_name: "Cat6030031" }
+          - { node_id: "21805227031",   node_name: "Cat5227031" }
+          - { node_id: "49987947031",   node_name: "Cat7947031" }
+          - { node_id: "212401097031",  node_name: "Cat1097031" }
+          - { node_id: "21845209031",   node_name: "Cat5209031" }
+          - { node_id: "21826032031",   node_name: "Cat6032031" }
+          - { node_id: "18020637031",   node_name: "Cat0637031" }
+          - { node_id: "21832868031",   node_name: "Mobile Phones & Communication Products" }
+          - { node_id: "49987963031",   node_name: "Cat7963031" }
+          - { node_id: "21832907031",   node_name: "Cat2907031" }
+          - { node_id: "21858001031",   node_name: "Cat8001031" }
+          - { node_id: "21845327031",   node_name: "Cat5327031" }
+          - { node_id: "18017807031",   node_name: "Cat7807031" }
           - { node_id: "26082316031",   node_name: "Cat2316031" }
           - { node_id: "21845337031",   node_name: "Cat5337031" }
           - { node_id: "21832873031",   node_name: "Cat2873031" }
-          - { node_id: "21832878031",   node_name: "Cat2878031" }
-
-    steps:
+          - { node_id: "21832878031",   node_name: "Cat2878031" }
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
