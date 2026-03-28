@@ -352,7 +352,6 @@ def main():
     all_products = []
     seen_asins = set()
     out_file = f"search_products_{args.slice}.json"
-    SAVE_EVERY = 20  # incremental save every N keywords
 
     for i, keyword in enumerate(my_keywords):
         if len(all_products) >= args.limit:
@@ -370,22 +369,14 @@ def main():
         if gained:
             print(f"    +{gained} new (total: {len(all_products)})", flush=True)
 
-        # Incremental save every SAVE_EVERY keywords to avoid data loss on timeout
-        if (i + 1) % SAVE_EVERY == 0 or (i + 1) == len(my_keywords):
-            Path(out_file).write_text(
-                json.dumps(all_products, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
-            print(f"    [checkpoint] Saved {len(all_products)} products → {out_file}", flush=True)
+        # Save after EVERY keyword — zero data loss on timeout/cancellation
+        Path(out_file).write_text(
+            json.dumps(all_products, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
 
         # Pause between keywords
         time.sleep(random.uniform(5, 10))
-
-    # Final save
-    Path(out_file).write_text(
-        json.dumps(all_products, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
 
     print(f"\n{'='*60}")
     print(f"  DONE: {len(all_products)} unique products")
