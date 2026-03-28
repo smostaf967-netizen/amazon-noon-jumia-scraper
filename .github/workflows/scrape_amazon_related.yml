@@ -7,13 +7,13 @@ on:
 
 jobs:
   scrape:
-    name: "Related slice ${{ matrix.slice }}/40"
+    name: "Related ${{ matrix.slice }}/80"
     runs-on: ubuntu-latest
     timeout-minutes: 350
     continue-on-error: true
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 20
       matrix:
         include:
           - { slice: 0 }
@@ -26,6 +26,16 @@ jobs:
           - { slice: 7 }
           - { slice: 8 }
           - { slice: 9 }
+          - { slice: 10 }
+          - { slice: 11 }
+          - { slice: 12 }
+          - { slice: 13 }
+          - { slice: 14 }
+          - { slice: 15 }
+          - { slice: 16 }
+          - { slice: 17 }
+          - { slice: 18 }
+          - { slice: 19 }
 
     steps:
       - uses: actions/checkout@v4
@@ -38,44 +48,26 @@ jobs:
       - name: Download checkpoint
         uses: actions/download-artifact@v4
         with:
-          name: related-checkpoint-${{ matrix.slice }}
+          name: related-ckpt-${{ matrix.slice }}
           path: .
         continue-on-error: true
-      - name: Show checkpoint status
-        run: |
-          if [ -f related_checkpoint_${{ matrix.slice }}.json ]; then
-            echo "RESUMING from checkpoint"
-            python -c "import json; d=json.load(open('related_checkpoint_${{ matrix.slice }}.json')); print(f'Products: {len(d.get("products",[]))}, Visited: {len(d.get("visited",[]))}, Queue: {len(d.get("queue",[]))}')"
-          else
-            echo "No checkpoint — starting fresh"
-          fi
-      - name: Download existing ASINs from master
+      - name: Download seed ASINs
         env:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
           MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
-          if [ ! -f related_checkpoint_${{ matrix.slice }}.json ]; then
-            if [ -n "$MASTER_TOKEN" ]; then
-              git clone --depth 1 https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git _master 2>/dev/null || true
-              if [ -d _master/data ]; then
-                find _master/data -name "*.csv" -exec cp {} . \;
-                echo "Copied existing CSVs for seed ASINs"
-              fi
-              rm -rf _master
-            fi
+          if [ ! -f related_checkpoint_${{ matrix.slice }}.json ] && [ -n "$MASTER_TOKEN" ]; then
+            git clone --depth 1 https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git _m 2>/dev/null || true
+            [ -d _m/data ] && find _m/data -name "*.csv" -exec cp {} . \; && rm -rf _m
           fi
-      - name: Scrape related products
-        run: |
-          python amazon_related_spider.py \
-            --slice ${{ matrix.slice }} \
-            --total-slices 40 \
-            --limit 99999
+      - name: Scrape
+        run: python amazon_related_spider.py --slice ${{ matrix.slice }} --total-slices 80 --limit 99999
         timeout-minutes: 330
       - name: Upload checkpoint
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: related-checkpoint-${{ matrix.slice }}
+          name: related-ckpt-${{ matrix.slice }}
           path: related_checkpoint_${{ matrix.slice }}.json
           overwrite: true
           if-no-files-found: ignore
@@ -83,7 +75,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: related-products-${{ matrix.slice }}
+          name: related-out-${{ matrix.slice }}
           path: related_products_${{ matrix.slice }}.json
           if-no-files-found: ignore
 
@@ -98,12 +90,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Download all results
+      - name: Download results
         uses: actions/download-artifact@v4
         with:
-          pattern: related-products-*
+          pattern: related-out-*
           merge-multiple: true
-      - name: Merge to CSV
+      - name: Merge
         run: |
           python -c "
           import json, csv, glob, sys
@@ -113,37 +105,30 @@ jobs:
               try:
                   data = json.loads(open(f, encoding='utf-8').read())
                   for p in data:
-                      asin = p.get('asin','')
-                      if asin and asin not in seen:
-                          seen.add(asin)
+                      a = p.get('asin','')
+                      if a and a not in seen:
+                          seen.add(a)
                           products.append(p)
-                  print(f'{f}: {len(data)} products')
               except: pass
-          print(f'Total unique: {len(products)}')
+          print(f'Total: {len(products)} unique products')
           if not products: sys.exit(0)
           cols = list(products[0].keys())
           with open('amazon_products_related.csv', 'w', encoding='utf-8-sig', newline='') as f:
               w = csv.DictWriter(f, fieldnames=cols, extrasaction='ignore')
               w.writeheader()
               w.writerows(products)
-          print(f'Saved amazon_products_related.csv')
           "
-      - name: Push to master
+      - name: Push
         if: always()
         env:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
           MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
           if [ -z "$MASTER_TOKEN" ] || [ ! -f amazon_products_related.csv ]; then exit 0; fi
-          git clone https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git master_repo
-          mkdir -p master_repo/data/account1/
-          cp amazon_products_related.csv master_repo/data/account1/amazon_products_related.csv
-          cd master_repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Update related products from account1 - $(date +%Y-%m-%d)"
-          for i in 1 2 3 4 5; do
-            git pull --rebase origin main && git push && echo "Pushed OK" && break || sleep $((RANDOM % 10 + 5))
-          done
+          git clone https://$MASTER_TOKEN@github.com/$MASTER_OWNER/scraped-products-master.git mr
+          mkdir -p mr/data/account1/
+          cp amazon_products_related.csv mr/data/account1/amazon_products_related.csv
+          cd mr && git config user.name "bot" && git config user.email "bot@noreply.com"
+          git add . && git diff --cached --quiet && exit 0
+          git commit -m "Related products account1 - $(date +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do git pull --rebase origin main && git push && break || sleep 10; done
