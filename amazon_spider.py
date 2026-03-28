@@ -12,7 +12,7 @@ import time
 import random
 from datetime import datetime
 
-PRODUCT_LIMIT = 2000  # per group — 43 groups × 2000 = up to 86,000 products
+PRODUCT_LIMIT = 99999  # unlimited — جيب كل اللي تقدر عليه
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
