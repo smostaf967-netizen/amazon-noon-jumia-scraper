@@ -1,4 +1,4 @@
-name: Jumia Scraper - Account 1 (Categories 0-7)
+name: Jumia Scraper - Account 1 (Categories 0-4)
 
 on:
   schedule:
@@ -34,7 +34,7 @@ jobs:
           MATRIX=$(python - <<'EOF'
           import json, sys
           cats = json.load(open("categories.json", encoding="utf-8"))
-          subset = cats[0:6]
+          subset = cats[0:4]
           matrix = {
               "include": [
                   {"name": c["name"], "url": c["url"], "idx": i}

@@ -1,4 +1,4 @@
-name: Amazon Node Scraper - Account 1 (20 nodes)
+name: Amazon Node Scraper - Account 1 (14 nodes)
 
 on:
   workflow_dispatch:
@@ -33,12 +33,6 @@ jobs:
           - { node_id: "21845414031",  node_name: "Cat5414031" }
           - { node_id: "21858008031",  node_name: "Cat8008031" }
           - { node_id: "212401101031",  node_name: "Cat1101031" }
-          - { node_id: "49987947031",  node_name: "Cat7947031" }
-          - { node_id: "21857955031",  node_name: "Cat7955031" }
-          - { node_id: "21857878031",  node_name: "Cat7878031" }
-          - { node_id: "21857974031",  node_name: "Cat7974031" }
-          - { node_id: "21832982031",  node_name: "Cat2982031" }
-          - { node_id: "21833220031",  node_name: "Cat3220031" }
 
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +135,7 @@ jobs:
           git config user.name "Scraper Bot"
           git add data/
           if ! git diff --staged --quiet; then
-            git commit -m "Node scraper test from account1 - $(date -u +%Y-%m-%d)"
+            git commit -m "Node scraper from account1 - $(date -u +%Y-%m-%d)"
             for i in 1 2 3; do
               git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
             done
