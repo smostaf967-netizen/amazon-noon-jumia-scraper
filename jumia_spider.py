@@ -1302,8 +1302,10 @@ async def async_main(args: argparse.Namespace) -> None:
             await _close_playwright()
 
             if count == 0:
-                log.warning("No products scraped — check the category URL.")
-                sys.exit(1)
+                log.warning("No products scraped — category may be blocked or empty.")
+                # Exit 0 so the workflow doesn't mark as failure for one blocked category
+                # The blocked.log step will still record it
+                sys.exit(0)
 
         # ── EXPORT ───────────────────────────────────────────────────────────
         elif args.mode == "export":
