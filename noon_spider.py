@@ -1,32 +1,44 @@
 """
 Noon Egypt Scraper — GitHub Actions edition
-Playwright headless Chromium + RSC payload parsing + Cloudflare bypass
+curl_cffi + RSC payload parsing (NO Playwright needed)
 
 Usage:
-  python noon_spider.py --group_index 0 --limit 5000
+  python noon_spider.py --group_index 0 --limit 99999
 """
 import argparse
 import json
 import re
 import time
 import random
+import sys
 import os
 from datetime import datetime
 
-PRODUCT_LIMIT = 99999  # unlimited — جيب كل اللي تقدر عليه
+try:
+    from curl_cffi import requests as curl_requests
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "curl_cffi", "-q"])
+    from curl_cffi import requests as curl_requests
 
-# Sort orders — كل sort بيجيب منتجات مختلفة
+try:
+    from scrapy import Selector
+except ImportError:
+    Selector = None
+
+PRODUCT_LIMIT = 99999
+
+# Sort orders
 NOON_SORT_ORDERS = [
-    ("popularity",  ""),                          # default
-    ("newest",      "?sortBy=new_arrivals"),
-    ("price_low",   "?sortBy=price_low"),
-    ("price_high",  "?sortBy=price_high"),
+    ("popularity",  ""),
+    ("newest",      "sortBy=new_arrivals"),
+    ("price_low",   "sortBy=price_low"),
+    ("price_high",  "sortBy=price_high"),
 ]
 
-# Price bands in EGP — Noon uses ?price[from]=X&price[to]=Y
-# 16 bands عشان نكتشف منتجات أكتر (خصوصاً الفئات الكبيرة)
+# 16 price bands in EGP
 NOON_PRICE_BANDS = [
-    ("all",          None,    None),      # no price filter first
+    ("all",          None,    None),
     ("0-25",         0,       25),
     ("25-50",        25,      50),
     ("50-100",       50,      100),
@@ -44,9 +56,8 @@ NOON_PRICE_BANDS = [
     ("10000+",       10000,   None),
 ]
 
-# ── 43 groups covering all major Noon Egypt categories ────────────────────────
+# 43 groups covering all major Noon Egypt categories
 CATEGORY_GROUPS = {
-    # Electronics
     "0":  ("Smartphones",           "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/mobiles-20905/smartphones/"),
     "1":  ("Laptops",               "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/laptops/"),
     "2":  ("Tablets",               "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/tablets/"),
@@ -58,7 +69,6 @@ CATEGORY_GROUPS = {
     "8":  ("Computer Accessories",  "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/computer-accessories/"),
     "9":  ("Networking",            "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/networking/"),
     "10": ("Smart Home",            "https://www.noon.com/egypt-en/electronics-and-mobiles/smart-home-and-security/"),
-    # Home & Kitchen
     "11": ("Large Appliances",      "https://www.noon.com/egypt-en/home-and-kitchen/large-appliances/"),
     "12": ("Home Appliances",       "https://www.noon.com/egypt-en/home-and-kitchen/home-appliances/"),
     "13": ("Kitchen & Dining",      "https://www.noon.com/egypt-en/home-and-kitchen/kitchen-and-dining/"),
@@ -67,18 +77,15 @@ CATEGORY_GROUPS = {
     "16": ("Home Decor",            "https://www.noon.com/egypt-en/home-and-kitchen/home-decor-and-furniture/"),
     "17": ("Bedding & Bath",        "https://www.noon.com/egypt-en/home-and-kitchen/bedding-and-bath/"),
     "18": ("Tools & Hardware",      "https://www.noon.com/egypt-en/home-and-kitchen/tools-and-hardware/"),
-    # Sports, Baby, Toys
     "19": ("Sports & Outdoors",     "https://www.noon.com/egypt-en/sports-and-outdoors/"),
     "20": ("Baby Products",         "https://www.noon.com/egypt-en/baby-and-toys/baby/"),
     "21": ("Toys & Games",          "https://www.noon.com/egypt-en/baby-and-toys/toys-and-games/"),
-    # Beauty & Health
     "22": ("Beauty",                "https://www.noon.com/egypt-en/beauty-and-health/beauty/"),
     "23": ("Skincare",              "https://www.noon.com/egypt-en/beauty-and-health/beauty/skincare/"),
     "24": ("Haircare",              "https://www.noon.com/egypt-en/beauty-and-health/beauty/haircare/"),
     "25": ("Makeup",                "https://www.noon.com/egypt-en/beauty-and-health/beauty/makeup/"),
     "26": ("Fragrances",            "https://www.noon.com/egypt-en/beauty-and-health/beauty/fragrances/"),
     "27": ("Health & Personal Care","https://www.noon.com/egypt-en/beauty-and-health/health/"),
-    # Fashion
     "28": ("Men's Fashion",         "https://www.noon.com/egypt-en/fashion/eg-fashion-men-cat/"),
     "29": ("Men's Shoes",           "https://www.noon.com/egypt-en/fashion/eg-fashion-men-shoes-cat/"),
     "30": ("Men's Watches",         "https://www.noon.com/egypt-en/fashion/eg-fashion-men-watches-cat/"),
@@ -89,34 +96,12 @@ CATEGORY_GROUPS = {
     "35": ("Lingerie",              "https://www.noon.com/egypt-en/fashion/eg-fashion-women-lingerie-cat/"),
     "36": ("Kids Fashion",          "https://www.noon.com/egypt-en/fashion/eg-fashion-kids-cat/"),
     "37": ("Sunglasses",            "https://www.noon.com/egypt-en/fashion/eg-fashion-sunglasses-cat/"),
-    # Other
     "38": ("Grocery",               "https://www.noon.com/egypt-en/grocery/"),
     "39": ("Automotive",            "https://www.noon.com/egypt-en/automotive/"),
     "40": ("Stationery & Office",   "https://www.noon.com/egypt-en/stationery-and-office-supplies/"),
     "41": ("Mobile Accessories",    "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/mobile-accessories/"),
     "42": ("Pet Supplies",          "https://www.noon.com/egypt-en/pet-supplies/"),
 }
-
-
-# ── Cloudflare detection keywords ────────────────────────────────────────────
-CF_SIGNATURES = [
-    "checking your browser",
-    "just a moment",
-    "cf-browser-verification",
-    "challenge-platform",
-    "turnstile",
-    "ray id",
-    "cloudflare",
-    "attention required",
-    "enable javascript",
-    "security check",
-]
-
-
-def _is_cloudflare_page(html_or_text):
-    """Check if the page is a Cloudflare challenge/block page."""
-    lower = html_or_text.lower()
-    return any(sig in lower for sig in CF_SIGNATURES)
 
 
 # ── RSC decoder ───────────────────────────────────────────────────────────────
@@ -223,241 +208,32 @@ def build_product(item, cat_name):
     }
 
 
-# ── DOM fallback parser ──────────────────────────────────────────────────────
+# ── HTTP fetch with retry ────────────────────────────────────────────────────
 
-def _parse_dom_fallback(page, cat_name):
-    """Fallback: extract products from visible HTML DOM when RSC parsing fails."""
-    products = []
-    try:
-        cards = page.query_selector_all('[data-qa="product-card"], div[class*="productContainer"], article[class*="product"]')
-        if not cards:
-            cards = page.query_selector_all('a[href*="/p/"]')
-        for card in cards:
-            try:
-                href = card.get_attribute("href") or ""
-                sku_match = re.search(r'/p/([A-Z0-9]+)', href)
-                sku = sku_match.group(1) if sku_match else ""
-                title_el = card.query_selector('[data-qa="product-name"], h2, span[class*="title"], span[class*="name"]')
-                title = title_el.inner_text().strip() if title_el else ""
-                price_el = card.query_selector('[data-qa="product-price"], span[class*="price"], strong')
-                price_text = price_el.inner_text().strip() if price_el else ""
-                price_clean = re.sub(r'[^\d.]', '', price_text.replace(',', ''))
-                if not sku or not title:
-                    continue
-                products.append({
-                    "platform": "noon",
-                    "product_id": sku,
-                    "title": title,
-                    "brand": "",
-                    "category": cat_name,
-                    "current_price": f"{price_clean} EGP" if price_clean else "",
-                    "original_price": "",
-                    "discount": "",
-                    "rating": "",
-                    "reviews_count": "",
-                    "availability": "In Stock",
-                    "seller": "",
-                    "express_delivery": "",
-                    "platform_badge": "",
-                    "sponsored": "",
-                    "main_image": "",
-                    "all_images": "",
-                    "description": "",
-                    "weight": "",
-                    "dimensions": "",
-                    "model_number": "",
-                    "country_of_origin": "",
-                    "warranty": "",
-                    "tech_specs": "",
-                    "variations": "",
-                    "ships_from": "",
-                    "delivery_date": "",
-                    "product_url": f"https://www.noon.com{href}" if href.startswith("/") else href,
-                    "scraped_at": datetime.now().isoformat(),
-                })
-            except Exception:
+def _fetch(session, url, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            r = session.get(url, timeout=30)
+            if r.status_code == 200:
+                return r.text
+            if r.status_code == 403:
+                wait = random.uniform(10, 20)
+                print(f"    [403] Blocked — waiting {wait:.0f}s (attempt {attempt+1}/{max_retries})", flush=True)
+                time.sleep(wait)
                 continue
-    except Exception as e:
-        print(f"  [DOM fallback error] {e}", flush=True)
-    return products
-
-
-# ── Cloudflare bypass helpers ─────────────────────────────────────────────────
-
-def _human_scroll(page):
-    """Simulate human-like scrolling behavior."""
-    try:
-        # Scroll down in small steps
-        for pct in [0.2, 0.4, 0.6, 0.8, 1.0]:
-            page.evaluate(f"window.scrollTo(0, document.body.scrollHeight * {pct})")
-            time.sleep(random.uniform(0.3, 0.8))
-        # Scroll back up a bit (human behavior)
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.3)")
-        time.sleep(random.uniform(0.5, 1.0))
-        # Final scroll to bottom
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        time.sleep(random.uniform(1.0, 2.0))
-    except Exception:
-        pass
-
-
-def _wait_for_cloudflare(page, max_wait=20):
-    """Wait for Cloudflare challenge to resolve. Returns True if resolved."""
-    start = time.time()
-    while time.time() - start < max_wait:
-        try:
-            html = page.content()
-            if not _is_cloudflare_page(html):
-                return True
-            # Check if there's a Turnstile checkbox to click
-            try:
-                checkbox = page.query_selector('input[type="checkbox"], .cf-turnstile iframe')
-                if checkbox:
-                    checkbox.click()
-                    print("    [CF] Clicked Turnstile checkbox", flush=True)
-                    time.sleep(3)
-            except Exception:
-                pass
-            time.sleep(2)
-        except Exception:
-            time.sleep(2)
-    return False
-
-
-def _warmup_session(page):
-    """Comprehensive warmup: visit homepage, scroll, dismiss popups."""
-    print("  Warming up on homepage...", flush=True)
-    try:
-        page.goto("https://www.noon.com/egypt-en/", wait_until="domcontentloaded", timeout=45_000)
-        time.sleep(random.uniform(3, 5))
-
-        # Check for Cloudflare on homepage
-        html = page.content()
-        if _is_cloudflare_page(html):
-            print("  [CF] Cloudflare challenge on homepage — waiting...", flush=True)
-            if _wait_for_cloudflare(page, max_wait=25):
-                print("  [CF] Challenge resolved!", flush=True)
-            else:
-                print("  [CF] Challenge NOT resolved — will retry on category pages", flush=True)
-
-        # Human-like browsing: scroll around
-        _human_scroll(page)
-
-        # Try to dismiss cookie/popup dialogs
-        for sel in ['button[data-qa="accept-cookies"]', 'button[aria-label="Close"]',
-                     'button:has-text("Accept")', 'button:has-text("Got it")']:
-            try:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    btn.click()
-                    time.sleep(0.5)
-            except Exception:
-                pass
-
-        # Visit a random category first to establish session
-        warmup_urls = [
-            "https://www.noon.com/egypt-en/electronics-and-mobiles/",
-            "https://www.noon.com/egypt-en/fashion/",
-            "https://www.noon.com/egypt-en/beauty-and-health/",
-        ]
-        warmup_url = random.choice(warmup_urls)
-        print(f"  Warmup browse: {warmup_url}", flush=True)
-        page.goto(warmup_url, wait_until="domcontentloaded", timeout=45_000)
-        time.sleep(random.uniform(4, 7))
-
-        if _is_cloudflare_page(page.content()):
-            print("  [CF] Cloudflare on warmup page — waiting...", flush=True)
-            _wait_for_cloudflare(page, max_wait=20)
-
-        _human_scroll(page)
-        time.sleep(random.uniform(2, 4))
-        print("  Warmup OK", flush=True)
-
-    except Exception as e:
-        print(f"  Warmup failed: {e} (continuing)", flush=True)
-
-
-# ── Page scraper (Playwright) with retry ─────────────────────────────────────
-
-def _scrape_page(page, url, cat_name, retry=0, max_retries=3):
-    from playwright.sync_api import TimeoutError as PWTimeout
-
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-    except PWTimeout:
-        print(f"    [TIMEOUT] {url}", flush=True)
-        if retry < max_retries:
-            print(f"    [RETRY {retry+1}/{max_retries}] Timeout — retrying after wait...", flush=True)
-            time.sleep(random.uniform(8, 15))
-            return _scrape_page(page, url, cat_name, retry + 1, max_retries)
-        return []
-    except Exception as e:
-        print(f"    [NAV ERROR] {e}", flush=True)
-        return []
-
-    # Check for Cloudflare BEFORE reading content
-    time.sleep(random.uniform(2, 4))
-    html = page.content()
-
-    if _is_cloudflare_page(html):
-        print(f"    [CF] Cloudflare challenge detected — waiting up to 20s...", flush=True)
-        resolved = _wait_for_cloudflare(page, max_wait=20)
-        if resolved:
-            print(f"    [CF] Challenge resolved!", flush=True)
-            html = page.content()
-        elif retry < max_retries:
-            print(f"    [CF-RETRY {retry+1}/{max_retries}] Reloading page...", flush=True)
+            if r.status_code == 404:
+                return None
+            print(f"    [HTTP {r.status_code}] Unexpected — retrying", flush=True)
+            time.sleep(random.uniform(3, 6))
+        except Exception as e:
+            print(f"    [ERROR] {e} — retrying", flush=True)
             time.sleep(random.uniform(5, 10))
-            return _scrape_page(page, url, cat_name, retry + 1, max_retries)
-        else:
-            print(f"    [CF] Challenge NOT resolved after {max_retries} retries — skipping", flush=True)
-            return []
-
-    # Wait for content and scroll to trigger lazy loading
-    _human_scroll(page)
-    time.sleep(random.uniform(1, 2))
-
-    html = page.content()
-    hits = extract_hits(html)
-
-    if not hits:
-        body_text = ""
-        try:
-            body_text = page.evaluate("document.body.innerText")
-        except Exception:
-            pass
-
-        if "could not find" in body_text.lower() or "went wrong" in body_text.lower():
-            print("    [WARN] Noon returned error page", flush=True)
-        else:
-            # Fallback: try parsing products from visible DOM
-            dom_products = _parse_dom_fallback(page, cat_name)
-            if dom_products:
-                print(f"    [DOM fallback] Recovered {len(dom_products)} products from HTML", flush=True)
-                return dom_products
-
-            # If page 1 returned 0 and no error detected, might be a soft block — retry
-            if retry < max_retries:
-                print(f"    [EMPTY-RETRY {retry+1}/{max_retries}] Got 0 products — retrying after wait...", flush=True)
-                time.sleep(random.uniform(8, 15))
-                # Try a small human interaction before retry
-                try:
-                    page.goto("https://www.noon.com/egypt-en/", wait_until="domcontentloaded", timeout=30_000)
-                    time.sleep(random.uniform(3, 5))
-                    _human_scroll(page)
-                except Exception:
-                    pass
-                return _scrape_page(page, url, cat_name, retry + 1, max_retries)
-
-    return [build_product(h, cat_name) for h in hits if isinstance(h, dict)]
+    return None
 
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
 def scrape_group(group_index, limit=PRODUCT_LIMIT):
-    from playwright.sync_api import sync_playwright
-    from playwright_stealth import Stealth
-
     group_key = str(group_index)
     if group_key not in CATEGORY_GROUPS:
         print(f"Unknown group_index: {group_index}")
@@ -468,136 +244,98 @@ def scrape_group(group_index, limit=PRODUCT_LIMIT):
 
     all_products = []
     seen         = set()
-    consecutive_empty_bands = 0  # Track consecutive empty bands for early exit
+    consecutive_empty_bands = 0
 
-    stealth = Stealth(
-        navigator_webdriver=True,
-        chrome_runtime=True,
-        webgl_vendor=True,
-        navigator_languages=True,
-        navigator_platform=True,
-        navigator_plugins=True,
-    )
+    session = curl_requests.Session(impersonate="chrome131")
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=False,   # False = headed (bypass Cloudflare headless detection)
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--window-size=1920,1080",
-            ],
-        )
-        ctx = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-            locale="en-US",
-            timezone_id="Africa/Cairo",
-            extra_http_headers={
-                "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-                "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1",
-            },
-        )
-        page = ctx.new_page()
-        stealth.apply_stealth_sync(page)
+    # Warmup: visit homepage first to establish session cookies
+    print("  Warming up...", flush=True)
+    try:
+        session.get("https://www.noon.com/egypt-en/", timeout=20)
+        time.sleep(random.uniform(1, 2))
+        print("  Warmup OK", flush=True)
+    except Exception as e:
+        print(f"  Warmup failed: {e} (continuing)", flush=True)
 
-        # Comprehensive warmup
-        _warmup_session(page)
+    # Loop through price bands × sort orders
+    for band_name, price_min, price_max in NOON_PRICE_BANDS:
+        if len(all_products) >= limit:
+            break
 
-        # Loop through price bands × sort orders
-        for band_name, price_min, price_max in NOON_PRICE_BANDS:
+        if consecutive_empty_bands >= 4 and band_name != "all":
+            print(f"\n  [SKIP] Skipping band '{band_name}' — {consecutive_empty_bands} consecutive empty bands", flush=True)
+            continue
+
+        # Build price filter
+        if price_min is None:
+            price_param = ""
+        elif price_max is None:
+            price_param = f"price[from]={price_min}"
+        else:
+            price_param = f"price[from]={price_min}&price[to]={price_max}"
+
+        band_before = len(all_products)
+        print(f"\n  [Price Band: {band_name} EGP]", flush=True)
+
+        for sort_name, sort_param in NOON_SORT_ORDERS:
             if len(all_products) >= limit:
                 break
 
-            # If we got 3+ consecutive empty bands, the category is likely fully blocked
-            if consecutive_empty_bands >= 3 and band_name != "all":
-                print(f"\n  [SKIP] Skipping band '{band_name}' — {consecutive_empty_bands} consecutive empty bands", flush=True)
-                continue
+            # Build URL params
+            params = [p for p in [price_param, sort_param] if p]
+            query_string = "&".join(params)
 
-            # Build price filter URL params
-            if price_min is None:
-                price_suffix = ""
-            elif price_max is None:
-                price_suffix = f"?price[from]={price_min}"
-            else:
-                price_suffix = f"?price[from]={price_min}&price[to]={price_max}"
+            sort_count = 0
+            print(f"    [{band_name}/{sort_name}]", flush=True)
 
-            band_before = len(all_products)
-            print(f"\n  [Price Band: {band_name} EGP]", flush=True)
-
-            for sort_name, sort_suffix in NOON_SORT_ORDERS:
+            for page_num in range(1, 200):
                 if len(all_products) >= limit:
                     break
 
-                # Combine price + sort params
-                if price_suffix and sort_suffix:
-                    combined = price_suffix + "&" + sort_suffix.lstrip("?")
-                elif price_suffix:
-                    combined = price_suffix
-                else:
-                    combined = sort_suffix
+                # Build full URL
+                page_params = list(params)
+                if page_num > 1:
+                    page_params.append(f"page={page_num}")
+                full_query = "&".join(page_params)
+                url = f"{base_url}?{full_query}" if full_query else base_url
 
-                combo_url = base_url + combined
-                print(f"\n    [{band_name}/{sort_name}]", flush=True)
-                sort_count = 0
+                html = _fetch(session, url)
+                if html is None:
+                    print(f"    Page {page_num}: fetch failed — skipping", flush=True)
+                    break
 
-                for page_num in range(1, 200):
-                    if len(all_products) >= limit:
-                        break
+                hits = extract_hits(html)
 
-                    sep = "&" if "?" in combined else "?"
-                    url = combo_url if page_num == 1 else f"{combo_url}{sep}page={page_num}"
-                    print(f"    Page {page_num}: {url}", flush=True)
+                new_count = 0
+                for h in hits:
+                    if not isinstance(h, dict):
+                        continue
+                    p = build_product(h, cat_name)
+                    if p and p["product_id"] not in seen and len(all_products) < limit:
+                        seen.add(p["product_id"])
+                        all_products.append(p)
+                        new_count += 1
+                        sort_count += 1
 
-                    # Use retry only on first page of each combo
-                    retries = 3 if page_num == 1 else 1
-                    raw = _scrape_page(page, url, cat_name, retry=0, max_retries=retries)
-                    print(f"    RSC hits: {len(raw)}", flush=True)
+                print(f"    Page {page_num}: {len(hits)} hits, +{new_count} new (total {len(all_products)})", flush=True)
 
-                    new_count = 0
-                    for p in raw:
-                        if p and p["product_id"] not in seen and len(all_products) < limit:
-                            seen.add(p["product_id"])
-                            all_products.append(p)
-                            new_count += 1
-                            sort_count += 1
+                if new_count == 0:
+                    break
 
-                    print(f"    +{new_count} new  (total {len(all_products)}/{limit})", flush=True)
+                # Delay between pages (shorter than Playwright — curl is fast)
+                time.sleep(random.uniform(1.5, 3.5))
 
-                    if new_count == 0:
-                        print(f"    Sort '{sort_name}' exhausted at page {page_num}", flush=True)
-                        break
+            print(f"    Sort '{sort_name}' done: {sort_count} new products", flush=True)
 
-                    # Longer delays between pages (4-8 seconds)
-                    time.sleep(random.uniform(4, 8))
+        band_new = len(all_products) - band_before
+        print(f"  Band '{band_name}' done: {band_new} new products", flush=True)
 
-                print(f"    Sort '{sort_name}' done: {sort_count} new products", flush=True)
+        if band_new > 0:
+            consecutive_empty_bands = 0
+        else:
+            consecutive_empty_bands += 1
 
-            band_new = len(all_products) - band_before
-            print(f"  Band '{band_name}' done: {band_new} new products", flush=True)
-
-            if band_new > 0:
-                consecutive_empty_bands = 0
-            else:
-                consecutive_empty_bands += 1
-
-        browser.close()
-
-    print(f"[Group {group_index}] Done: {len(all_products)} products", flush=True)
+    print(f"\n[Group {group_index}] Done: {len(all_products)} products", flush=True)
     return all_products
 
 
