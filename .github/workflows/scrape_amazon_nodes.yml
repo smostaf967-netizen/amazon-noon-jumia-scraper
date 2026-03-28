@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: 'Max products per node'
+        description: Max products per node
         required: false
         default: '99999'
 
@@ -50,28 +50,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          cache: pip
       - name: Install dependencies
         run: pip install curl-cffi scrapy
       - name: Stagger start
         run: sleep $((RANDOM % 20 + 5))
       - name: Scrape node ${{ matrix.node_id }}
-        run: |
-          python amazon_node_spider.py \
-            --node_id   ${{ matrix.node_id }} \
-            --node_name "${{ matrix.node_name }}" \
-            --limit     ${{ github.event.inputs.limit || '99999' }}
+        run: python amazon_node_spider.py --node_id ${{ matrix.node_id }} --node_name "${{ matrix.node_name }}" --limit ${{ github.event.inputs.limit || '99999' }}
         timeout-minutes: 90
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: node-${{ matrix.node_id }}
-          path: "node_*.json"
+          path: node_*.json
           if-no-files-found: warn
 
   export:
-    name: "Merge & Export CSV"
+    name: Merge and Export CSV
     needs: scrape
     if: always()
     runs-on: ubuntu-latest
@@ -87,35 +83,7 @@ jobs:
           pattern: node-*
           merge-multiple: true
       - name: Merge JSON to CSV
-        run: |
-          cat > _merge.py << 'PYEOF'
-import json, glob, csv, sys
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-merged = []
-for fname in sorted(glob.glob("node_*.json")):
-    try:
-        data = json.loads(open(fname, encoding="utf-8").read())
-        merged.extend(data)
-        print(f"{fname}: {len(data)} products")
-    except: pass
-seen = set()
-unique = []
-for p in merged:
-    asin = p.get("asin","")
-    if asin and asin not in seen:
-        seen.add(asin)
-        unique.append(p)
-print(f"Total raw: {len(merged)}, Unique: {len(unique)}")
-columns = ["platform","asin","title","brand","category","current_price","original_price",
-           "discount","rating","reviews_count","prime_eligible","amazon_choice",
-           "sponsored","main_image","product_url","scraped_at"]
-with open("amazon_products_nodes.csv", "w", encoding="utf-8-sig", newline="") as f:
-    writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(unique)
-print(f"Saved: amazon_products_nodes.csv ({len(unique)} products)")
-          PYEOF
-          python _merge.py
+        run: python merge_nodes.py
       - name: Upload merged CSV
         uses: actions/upload-artifact@v4
         with:
@@ -128,7 +96,7 @@ print(f"Saved: amazon_products_nodes.csv ({len(unique)} products)")
           MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
           if [ -z "$MASTER_TOKEN" ]; then echo "No MASTER_REPO_TOKEN"; exit 0; fi
-          git clone https://${MASTER_TOKEN}@github.com/${MASTER_OWNER}/scraped-products-master.git master_repo
+          git clone https://${{MASTER_TOKEN}}@github.com/${{MASTER_OWNER}}/scraped-products-master.git master_repo
           mkdir -p master_repo/data/account1/
           cp amazon_products_nodes.csv master_repo/data/account1/amazon_products_nodes.csv
           cd master_repo
