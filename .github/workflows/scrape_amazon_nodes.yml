@@ -95,8 +95,8 @@ jobs:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
           MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
-          if [ -z "$MASTER_TOKEN" ]; then echo "No MASTER_REPO_TOKEN"; exit 0; fi
-          git clone https://${{MASTER_TOKEN}}@github.com/${{MASTER_OWNER}}/scraped-products-master.git master_repo
+          if [ -z "$MASTER_TOKEN" ]; then echo "No token"; exit 0; fi
+          git clone https://${MASTER_TOKEN}@github.com/${MASTER_OWNER}/scraped-products-master.git master_repo
           mkdir -p master_repo/data/account1/
           cp amazon_products_nodes.csv master_repo/data/account1/amazon_products_nodes.csv
           cd master_repo
@@ -104,7 +104,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Update amazon nodes from account1 - $(date +%Y-%m-%d)"
+          git commit -m "Update nodes from account1 - $(date +%Y-%m-%d)"
           for i in 1 2 3 4 5; do
-            git pull --rebase origin main && git push && echo "Pushed OK" && break || sleep $((RANDOM % 10 + 5))
+            git pull --rebase origin main && git push && echo "OK" && break || sleep 10
           done
