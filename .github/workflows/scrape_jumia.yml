@@ -1,155 +1,132 @@
-name: Jumia Scraper - Account 1 (Categories 7-13)
+name: Jumia Scraper - Account 1 (Categories 0-7)
 
 on:
-  schedule:
-    - cron: '3 3 * * *'   # 5:00 AM Egypt time
   workflow_dispatch:
     inputs:
       limit:
-        description: 'Max products per category'
+        description: Max products per category
         required: false
-        default: '5000'
+        default: '99999'
+  schedule:
+    - cron: '0 3 * * *'
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
   discover:
     name: Discover Categories
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-
+      categories: ${{ steps.disc.outputs.categories }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+          cache: pip
       - name: Install dependencies
-        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm
-
+        run: pip install curl-cffi beautifulsoup4
       - name: Discover categories
-        id: set-matrix
+        id: disc
         run: |
-          python jumia_spider.py --mode discover
-          MATRIX=$(python - <<'EOF'
-          import json, sys
-          cats = json.load(open("categories.json", encoding="utf-8"))
-          subset = cats[7:13]
-          matrix = {
-              "include": [
-                  {"name": c["name"], "url": c["url"], "idx": i}
-                  for i, c in enumerate(subset)
-              ]
-          }
-          print(json.dumps(matrix))
-          EOF
-          )
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-
-      - name: Upload categories artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: categories
-          path: categories.json
+          CATS=$(python jumia_spider.py --mode discover)
+          echo "categories=$CATS" >> "$GITHUB_OUTPUT"
 
   scrape:
-    name: "Scrape: ${{ matrix.name }}"
+    name: "Scrape: ${{ matrix.cat_name }}"
     needs: discover
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     continue-on-error: true
     strategy:
-      max-parallel: 20
       fail-fast: false
-      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+      max-parallel: 5
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.categories) }}
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+          cache: pip
       - name: Install dependencies
-        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm playwright playwright-stealth
-
-      - name: Cache Playwright browser
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-v1
-
-      - name: Install Playwright browser
-        run: playwright install chromium --with-deps
-
-      - name: "Scrape ${{ matrix.name }}"
-        id: scrape
+        run: pip install curl-cffi beautifulsoup4
+      - name: Stagger start
+        run: sleep $((RANDOM % 15 + 3))
+      - name: Scrape category
         run: |
           python jumia_spider.py \
             --mode scrape \
-            --category-name "${{ matrix.name }}" \
-            --category-url  "${{ matrix.url }}" \
-            --group-index   ${{ matrix.idx }} \
+            --category-name "${{ matrix.cat_name }}" \
+            --category-url  "${{ matrix.cat_url }}" \
+            --group-index   ${{ matrix.cat_index }} \
             --limit ${{ github.event.inputs.limit || '99999' }} \
             --deep
-        timeout-minutes: 180
-
-      - name: Log blocked category
-        if: failure()
+        timeout-minutes: 90
+      - name: Check results
+        if: always()
         run: |
-          echo "${{ matrix.name }} | ${{ matrix.url }} | blocked/failed" >> blocked.log
-
-      - name: Upload products artifact
+          FILE="products_${{ matrix.cat_index }}.json"
+          if [ -f "$FILE" ]; then
+            COUNT=$(python -c "import json; print(len(json.loads(open('$FILE').read())))")
+            echo "Category '${{ matrix.cat_name }}' produced $COUNT products"
+            if [ "$COUNT" = "0" ]; then
+              echo "${{ matrix.cat_name }} | ${{ matrix.cat_url }} | blocked/empty" >> blocked.log
+            fi
+          else
+            echo "No output file"
+            echo "${{ matrix.cat_name }} | ${{ matrix.cat_url }} | no output" >> blocked.log
+          fi
+      - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "jumia-products-${{ matrix.idx }}"
+          name: jumia-products-${{ matrix.cat_index }}
           path: |
-            products_${{ matrix.idx }}.json
+            products_${{ matrix.cat_index }}.json
             blocked.log
+          if-no-files-found: warn
 
   export:
     name: Export CSV
     needs: scrape
     if: always()
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install curl-cffi beautifulsoup4 lxml tenacity tqdm
-
-      - name: Download all product artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: jumia-products-*
           merge-multiple: true
-
-      - name: Merge JSON -> CSV
-        run: python jumia_spider.py --mode export
-
-      - name: Rename output CSV
+      - name: Merge to CSV
         run: |
-          find output/ -name "jumia_products_*.csv" | head -1 | xargs -I{} cp {} jumia_products.csv || true
-
+          python jumia_spider.py --mode export
       - name: Push to master repo
+        if: always()
         env:
           MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+          MASTER_OWNER: ${{ secrets.MASTER_REPO_OWNER }}
         run: |
-          git clone https://${MASTER_TOKEN}@github.com/khaledali45947-dev/scraped-products-master.git master_repo
-          mkdir -p master_repo/data/account1
-          cp jumia_products.csv master_repo/data/account1/ 2>/dev/null || true
+          CSV=$(ls output/jumia_products_*.csv 2>/dev/null | head -1)
+          if [ -z "$MASTER_TOKEN" ] || [ -z "$CSV" ]; then echo "No token or CSV"; exit 0; fi
+          git clone https://${MASTER_TOKEN}@github.com/${MASTER_OWNER}/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1/
+          cp "$CSV" master_repo/data/account1/jumia_products.csv
           cd master_repo
-          git config user.email "scraper-bot@github.com"
-          git config user.name "Scraper Bot"
-          git add data/
-          if ! git diff --staged --quiet; then
-            git commit -m "Update jumia from account1 - $(date -u +%Y-%m-%d)"
-            for i in 1 2 3; do
-              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
-            done
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update jumia from account1 - $(date +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && echo "Pushed OK" && break || sleep $((RANDOM % 10 + 5))
+          done
