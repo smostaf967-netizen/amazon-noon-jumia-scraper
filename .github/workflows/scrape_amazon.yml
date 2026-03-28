@@ -1,8 +1,8 @@
-name: Amazon Scraper - Account 1 (Groups 0-6)
+name: Amazon Scraper - Account 1 (Groups 0-8)
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 3:00 AM Egypt time
+    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
       reason:
@@ -22,7 +22,7 @@ jobs:
     continue-on-error: true
     strategy:
       matrix:
-        group_index: [0,1,2,3,4,5,6]
+        group_index: [0, 1, 2, 3, 4, 5, 6, 7, 8]
       fail-fast: false
       max-parallel: 20
 
@@ -91,13 +91,11 @@ jobs:
           print(f"\nTotal: {len(merged)} products")
 
           columns = [
-              "platform", "product_id", "title", "brand", "category",
+              "platform", "asin", "title", "brand", "category",
               "current_price", "original_price", "discount",
-              "rating", "reviews_count", "availability",
-              "seller", "express_delivery", "platform_badge", "sponsored",
-              "main_image", "all_images", "description", "weight", "dimensions",
-              "model_number", "country_of_origin", "warranty", "tech_specs", "variations",
-              "ships_from", "delivery_date", "product_url", "scraped_at",
+              "rating", "reviews_count",
+              "prime_eligible", "amazon_choice", "sponsored",
+              "main_image", "product_url", "scraped_at",
           ]
 
           with open("amazon_products.csv", "w", encoding="utf-8-sig", newline="") as f:
