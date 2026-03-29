@@ -33,7 +33,7 @@ except ImportError:
 BASE = "https://www.amazon.eg"
 PRODUCT_LIMIT = 99999
 MAX_RUNTIME = 19800  # 5.5 hours in seconds (leave 30 min for export+push)
-PAGE_DELAY = (1.0, 2.0)  # Faster delays — Amazon doesn't block curl_cffi
+PAGE_DELAY = (2.5, 4.5)  # Safe delays — fast enough but won't get blocked
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
