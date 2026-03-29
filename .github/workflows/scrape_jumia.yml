@@ -7,8 +7,7 @@ on:
         description: Max products per category
         required: false
         default: '99999'
-  schedule:
-    - cron: '0 3 * * *'
+
 
 permissions:
   actions: write
