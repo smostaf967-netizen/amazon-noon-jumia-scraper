@@ -33,6 +33,7 @@ except ImportError:
 BASE = "https://www.amazon.eg"
 PRODUCT_LIMIT = 99999
 MAX_RUNTIME = 19800  # 5.5 hours in seconds (leave 30 min for export+push)
+PAGE_DELAY = (1.0, 2.0)  # Faster delays — Amazon doesn't block curl_cffi
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -255,7 +256,7 @@ def main():
                 "queue": queue[:50000],  # Cap queue size
             }, ensure_ascii=False), encoding="utf-8")
 
-        time.sleep(random.uniform(1.5, 3.5))
+        time.sleep(random.uniform(*PAGE_DELAY))
 
     # Final save
     Path(out_file).write_text(
