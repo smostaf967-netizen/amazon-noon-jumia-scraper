@@ -1,0 +1,69 @@
+name: Catalog Node Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_depth:
+        description: 'Max tree depth (default 6)'
+        required: false
+        default: '6'
+      max_nodes:
+        description: 'Max nodes to discover (default 5000)'
+        required: false
+        default: '5000'
+
+jobs:
+  discover:
+    name: Discover Amazon Egypt Node Tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install curl-cffi
+
+      - name: Warm up (brief delay)
+        run: sleep $((RANDOM % 30 + 10))
+
+      - name: Run node discovery
+        run: |
+          python amazon_node_discovery.py \
+            --max-depth ${{ github.event.inputs.max_depth || '6' }} \
+            --max-nodes ${{ github.event.inputs.max_nodes || '5000' }}
+
+      - name: Show summary
+        run: |
+          python - <<'EOF'
+          import json
+          from pathlib import Path
+
+          nodes = json.load(open("amazon_nodes.json", encoding="utf-8"))
+          leaves = [n for n in nodes if n["is_leaf"]]
+
+          print(f"\n{'='*50}")
+          print(f"  Total nodes : {len(nodes)}")
+          print(f"  Leaf nodes  : {len(leaves)}")
+          est = sum(min(n['count'], 400) * 4 for n in leaves if n['count'] > 0)
+          print(f"  Est. products (×4 sorts): {est:,}")
+
+          # Top 20 by count
+          print(f"\n  Top 20 leaf nodes by product count:")
+          for n in sorted(leaves, key=lambda x: x['count'], reverse=True)[:20]:
+              print(f"    {n['count']:>8,}  {n['name']:<40} ({n['node_id']})")
+          print(f"{'='*50}\n")
+          EOF
+
+      - name: Upload amazon_nodes.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-nodes
+          path: |
+            amazon_nodes.json
+            amazon_leaf_nodes.json
+          retention-days: 30
