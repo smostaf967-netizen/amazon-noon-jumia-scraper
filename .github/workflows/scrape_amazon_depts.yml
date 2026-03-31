@@ -1,0 +1,124 @@
+name: Amazon Depts Scraper - Account 1 (30 Departments)
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'Manual run'
+      limit:
+        description: 'Max products per department'
+        required: false
+        default: '99999'
+  schedule:
+    - cron: '0 3 * * *'   # 5:00 AM Egypt time (daily)
+
+jobs:
+  scrape:
+    name: Scrape Dept ${{ matrix.dept_index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      matrix:
+        dept_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+      fail-fast: false
+      max-parallel: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install curl-cffi beautifulsoup4 lxml
+
+      - name: Stagger start
+        run: sleep $((RANDOM % 30 + 5))
+
+      - name: Run dept scraper
+        run: |
+          python amazon_depts_gh.py \
+            --dept_index ${{ matrix.dept_index }} \
+            --limit ${{ github.event.inputs.limit || '99999' }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-depts-${{ matrix.dept_index }}
+          path: products_${{ matrix.dept_index }}.json
+
+  export:
+    name: Merge & Export CSV
+    runs-on: ubuntu-latest
+    needs: scrape
+    if: always()
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amazon-depts-*
+          merge-multiple: true
+
+      - name: Merge JSON -> CSV
+        run: |
+          python - <<'EOF'
+          import json, glob, csv
+
+          merged = []
+          seen = set()
+          for fname in sorted(glob.glob("products_*.json")):
+              with open(fname, encoding="utf-8") as f:
+                  try:
+                      data = json.load(f)
+                      for p in data:
+                          if p.get("product_id") not in seen:
+                              seen.add(p["product_id"])
+                              merged.append(p)
+                      print(f"{fname}: {len(data)} products")
+                  except Exception as e:
+                      print(f"{fname}: ERROR - {e}")
+
+          print(f"\nTotal unique: {len(merged)} products")
+
+          columns = [
+              "platform", "product_id", "title", "brand", "category",
+              "current_price", "original_price", "discount",
+              "rating", "reviews_count", "availability",
+              "main_image", "product_url", "scraped_at",
+          ]
+
+          with open("amazon_depts.csv", "w", encoding="utf-8-sig", newline="") as f:
+              writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+              writer.writeheader()
+              writer.writerows(merged)
+
+          print("Saved: amazon_depts.csv")
+          EOF
+
+      - name: Push to master repo
+        env:
+          MASTER_TOKEN: ${{ secrets.MASTER_REPO_TOKEN }}
+        run: |
+          git clone https://${MASTER_TOKEN}@github.com/khaledali45947-dev/scraped-products-master.git master_repo
+          mkdir -p master_repo/data/account1
+          cp amazon_depts.csv master_repo/data/account1/ 2>/dev/null || true
+          cd master_repo
+          git config user.email "scraper-bot@github.com"
+          git config user.name "Scraper Bot"
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "Update amazon depts from account1 - $(date -u +%Y-%m-%d)"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push && break || sleep $((RANDOM % 20 + 10))
+            done
+          fi
