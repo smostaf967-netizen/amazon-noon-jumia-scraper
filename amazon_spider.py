@@ -83,6 +83,41 @@ CATEGORY_GROUPS = {
     "40": ("Grocery",             "https://www.amazon.eg/s?k=grocery+food&i=grocery"),
     "41": ("Musical Instruments", "https://www.amazon.eg/s?k=musical+instruments&i=musical-instruments"),
     "42": ("Movies & TV",         "https://www.amazon.eg/s?k=movies+tv&i=movies-tv"),
+    # ── Arabic keyword groups — منتجات لا تظهر في البحث الإنجليزي ──────────────
+    # Brands in Arabic
+    "43": ("AR-Samsung",          "https://www.amazon.eg/s?k=%D8%B3%D8%A7%D9%85%D8%B3%D9%88%D9%86%D8%AC"),
+    "44": ("AR-iPhone",           "https://www.amazon.eg/s?k=%D8%A7%D9%8A%D9%81%D9%88%D9%86"),
+    "45": ("AR-Huawei",           "https://www.amazon.eg/s?k=%D9%87%D9%88%D8%A7%D9%88%D9%8A"),
+    "46": ("AR-Xiaomi",           "https://www.amazon.eg/s?k=%D8%B4%D8%A7%D9%88%D9%85%D9%8A"),
+    "47": ("AR-LG",               "https://www.amazon.eg/s?k=%D8%A7%D9%84%D8%AC%D9%8A"),
+    # Electronics in Arabic
+    "48": ("AR-Screens",          "https://www.amazon.eg/s?k=%D8%B4%D8%A7%D8%B4%D8%A9+%D8%AA%D9%84%D9%81%D8%B2%D9%8A%D9%88%D9%86"),
+    "49": ("AR-Mobile",           "https://www.amazon.eg/s?k=%D8%AA%D9%84%D9%8A%D9%81%D9%88%D9%86+%D9%85%D8%AD%D9%85%D9%88%D9%84&i=mobile"),
+    "50": ("AR-Laptop",           "https://www.amazon.eg/s?k=%D9%84%D8%A7%D8%A8%D8%AA%D9%88%D8%A8&i=computers"),
+    "51": ("AR-Headphones",       "https://www.amazon.eg/s?k=%D8%B3%D9%85%D8%A7%D8%B9%D8%A7%D8%AA&i=electronics"),
+    "52": ("AR-Printer",          "https://www.amazon.eg/s?k=%D8%B7%D8%A7%D8%A8%D8%B9%D8%A9"),
+    # Home Appliances in Arabic
+    "53": ("AR-Washing-Machine",  "https://www.amazon.eg/s?k=%D8%BA%D8%B3%D8%A7%D9%84%D8%A9&i=appliances"),
+    "54": ("AR-Fridge",           "https://www.amazon.eg/s?k=%D8%AB%D9%84%D8%A7%D8%AC%D8%A9&i=appliances"),
+    "55": ("AR-AC",               "https://www.amazon.eg/s?k=%D9%85%D9%83%D9%8A%D9%81+%D9%87%D9%88%D8%A7%D8%A1&i=appliances"),
+    "56": ("AR-Home-Appliances",  "https://www.amazon.eg/s?k=%D8%A3%D8%AC%D9%87%D8%B2%D8%A9+%D9%85%D9%86%D8%B2%D9%84%D9%8A%D8%A9"),
+    "57": ("AR-Kitchen-Tools",    "https://www.amazon.eg/s?k=%D8%A3%D8%AF%D9%88%D8%A7%D8%AA+%D9%85%D8%B7%D8%A8%D8%AE&i=kitchen"),
+    # Fashion in Arabic
+    "58": ("AR-Mens-Clothing",    "https://www.amazon.eg/s?k=%D9%85%D9%84%D8%A7%D8%A8%D8%B3+%D8%B1%D8%AC%D8%A7%D9%84%D9%8A&i=fashion-mens-clothing"),
+    "59": ("AR-Womens-Clothing",  "https://www.amazon.eg/s?k=%D9%85%D9%84%D8%A7%D8%A8%D8%B3+%D9%86%D8%B3%D8%A7%D8%A6%D9%8A&i=fashion-womens-clothing"),
+    "60": ("AR-Shoes",            "https://www.amazon.eg/s?k=%D8%A3%D8%AD%D8%B0%D9%8A%D8%A9&i=shoes"),
+    "61": ("AR-Bags",             "https://www.amazon.eg/s?k=%D8%AD%D9%82%D8%A7%D8%A6%D8%A8&i=luggage"),
+    "62": ("AR-Watches",          "https://www.amazon.eg/s?k=%D8%B3%D8%A7%D8%B9%D8%A7%D8%AA&i=watches"),
+    "63": ("AR-Sunglasses",       "https://www.amazon.eg/s?k=%D9%86%D8%B8%D8%A7%D8%B1%D8%A7%D8%AA"),
+    # Beauty in Arabic
+    "64": ("AR-Perfume",          "https://www.amazon.eg/s?k=%D8%B9%D8%B7%D9%88%D8%B1&i=beauty"),
+    "65": ("AR-Makeup",           "https://www.amazon.eg/s?k=%D9%85%D9%83%D9%8A%D8%A7%D8%AC&i=beauty"),
+    "66": ("AR-Skincare",         "https://www.amazon.eg/s?k=%D8%B9%D9%86%D8%A7%D9%8A%D8%A9+%D8%A8%D8%B4%D8%B1%D8%A9&i=beauty"),
+    "67": ("AR-Protein",          "https://www.amazon.eg/s?k=%D8%A8%D8%B1%D9%88%D8%AA%D9%8A%D9%86&i=hpc"),
+    # Furniture in Arabic
+    "68": ("AR-Mattress",         "https://www.amazon.eg/s?k=%D9%85%D8%B1%D8%A7%D8%AA%D8%A8&i=furniture"),
+    "69": ("AR-Chairs",           "https://www.amazon.eg/s?k=%D9%83%D8%B1%D8%A7%D8%B3%D9%8A+%D9%85%D9%83%D8%AA%D8%A8&i=furniture"),
+    "70": ("AR-Sports",           "https://www.amazon.eg/s?k=%D8%A3%D8%AF%D9%88%D8%A7%D8%AA+%D8%B1%D9%8A%D8%A7%D8%B6%D8%A9&i=sporting-goods"),
 }
 
 
