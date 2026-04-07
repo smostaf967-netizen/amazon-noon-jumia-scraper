@@ -76,16 +76,15 @@ def new_session():
 
 def human_delay():
     r = random.random()
-    if r < 0.50:
-        d = random.uniform(1.5, 4.0)
-    elif r < 0.80:
-        d = random.uniform(4.0, 9.0)
-    elif r < 0.95:
-        d = random.uniform(9.0, 18.0)
+    if r < 0.60:
+        d = random.uniform(0.5, 1.5)    # 60% سريع
+    elif r < 0.85:
+        d = random.uniform(1.5, 3.5)    # 25% متوسط
+    elif r < 0.97:
+        d = random.uniform(3.5, 7.0)    # 12% بطيء
     else:
-        d = random.uniform(20.0, 45.0)   # 5% pause طويلة
-    # Extra random jitter
-    d += random.uniform(0, 1.5)
+        d = random.uniform(8.0, 18.0)   # 3% pause
+    d += random.uniform(0, 0.5)
     time.sleep(d)
 
 def fetch(url, retries=4):
