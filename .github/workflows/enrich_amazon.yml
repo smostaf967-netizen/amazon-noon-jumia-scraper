@@ -6,7 +6,7 @@ on:
       total_chunks:
         description: 'Number of parallel chunks'
         required: false
-        default: '20'
+        default: '40'
 
 jobs:
   enrich:
@@ -16,9 +16,10 @@ jobs:
     continue-on-error: true
     strategy:
       matrix:
-        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
+                20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +36,7 @@ jobs:
         run: |
           python amazon_enricher_gh.py \
             --chunk ${{ matrix.chunk }} \
-            --total-chunks ${{ github.event.inputs.total_chunks || '20' }} \
+            --total-chunks ${{ github.event.inputs.total_chunks || '40' }} \
             --workers 8 \
             --input amazon_enrich_urls.json \
             --output enriched_chunk_${{ matrix.chunk }}.json
