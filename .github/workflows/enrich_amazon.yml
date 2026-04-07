@@ -1,0 +1,105 @@
+name: Amazon Detail Enricher
+
+on:
+  workflow_dispatch:
+    inputs:
+      total_chunks:
+        description: 'Number of parallel chunks'
+        required: false
+        default: '20'
+
+jobs:
+  enrich:
+    name: Enrich Chunk ${{ matrix.chunk }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    continue-on-error: true
+    strategy:
+      matrix:
+        chunk: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+      fail-fast: false
+      max-parallel: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install curl-cffi scrapy -q
+
+      - name: Run enricher chunk ${{ matrix.chunk }}
+        run: |
+          python amazon_enricher_gh.py \
+            --chunk ${{ matrix.chunk }} \
+            --total-chunks ${{ github.event.inputs.total_chunks || '20' }} \
+            --input amazon_enrich_urls.json \
+            --output enriched_chunk_${{ matrix.chunk }}.json
+
+      - name: Upload chunk result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enriched-chunk-${{ matrix.chunk }}
+          path: enriched_chunk_${{ matrix.chunk }}.json
+          retention-days: 7
+
+  merge:
+    name: Merge & Upload Results
+    needs: enrich
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download all chunk results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: enriched-chunk-*
+          merge-multiple: true
+
+      - name: Merge chunks
+        run: |
+          python - <<'PYEOF'
+          import json, glob, sys
+          sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+          files = sorted(glob.glob("enriched_chunk_*.json"))
+          print(f"Found {len(files)} chunk files")
+
+          all_results = []
+          ok = fail = 0
+          for f in files:
+              try:
+                  data = json.loads(open(f, encoding='utf-8').read())
+                  for item in data:
+                      if item.get('_status') in ('fail', 'parse_err'):
+                          fail += 1
+                      else:
+                          ok += 1
+                  all_results.extend(data)
+              except Exception as e:
+                  print(f"  Error reading {f}: {e}")
+
+          print(f"Total: {len(all_results)} | ok={ok} fail={fail}")
+
+          with open('amazon_enriched_all.json', 'w', encoding='utf-8') as f:
+              json.dump(all_results, f, ensure_ascii=False)
+
+          print(f"Saved amazon_enriched_all.json")
+          PYEOF
+
+      - name: Upload merged results
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazon-enriched-all
+          path: amazon_enriched_all.json
+          retention-days: 14
