@@ -10,7 +10,7 @@ Usage:
   python amazon_enricher_gh.py --chunk 0 --total-chunks 20 --input urls.json
 """
 
-import argparse, json, random, re, sys, time
+import argparse, json, random, re, sys, time, threading, queue
 from pathlib import Path
 from datetime import datetime
 
@@ -76,15 +76,14 @@ def new_session():
 
 def human_delay():
     r = random.random()
-    if r < 0.60:
-        d = random.uniform(0.5, 1.5)    # 60% سريع
-    elif r < 0.85:
-        d = random.uniform(1.5, 3.5)    # 25% متوسط
-    elif r < 0.97:
-        d = random.uniform(3.5, 7.0)    # 12% بطيء
+    if r < 0.65:
+        d = random.uniform(0.3, 1.0)    # 65% سريع
+    elif r < 0.90:
+        d = random.uniform(1.0, 2.5)    # 25% متوسط
+    elif r < 0.98:
+        d = random.uniform(2.5, 5.0)    # 8% بطيء
     else:
-        d = random.uniform(8.0, 18.0)   # 3% pause
-    d += random.uniform(0, 0.5)
+        d = random.uniform(5.0, 10.0)   # 2% pause
     time.sleep(d)
 
 def fetch(url, retries=4):
@@ -212,10 +211,11 @@ def parse_amazon(html, product_id, product_url):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--chunk",        type=int, required=True, help="Chunk index (0-based)")
-    ap.add_argument("--total-chunks", type=int, required=True, help="Total number of chunks")
-    ap.add_argument("--input",  default="amazon_enrich_urls.json", help="Input JSON file with [{product_id, product_url}]")
-    ap.add_argument("--output", default="",  help="Output JSON file (default: enriched_chunk_N.json)")
+    ap.add_argument("--chunk",        type=int, required=True)
+    ap.add_argument("--total-chunks", type=int, required=True)
+    ap.add_argument("--workers",      type=int, default=8, help="Concurrent threads per chunk")
+    ap.add_argument("--input",  default="amazon_enrich_urls.json")
+    ap.add_argument("--output", default="")
     args = ap.parse_args()
 
     input_file  = Path(args.input)
@@ -228,60 +228,76 @@ def main():
     all_items = json.loads(input_file.read_text(encoding="utf-8"))
     total     = len(all_items)
 
-    # Split into chunks
     chunk_size = (total + args.total_chunks - 1) // args.total_chunks
     start = args.chunk * chunk_size
     end   = min(start + chunk_size, total)
     items = all_items[start:end]
-
-    print(f"Chunk {args.chunk}/{args.total_chunks-1}: items {start}-{end-1} ({len(items)} products)", flush=True)
-    print(f"Output: {output_file}", flush=True)
-
-    results  = []
-    ok = fail = captcha = 0
-
-    # Random start stagger (avoid all chunks hitting at same time)
-    stagger = random.uniform(0, 30)
-    print(f"Start stagger: {stagger:.1f}s", flush=True)
-    time.sleep(stagger)
-
-    # Shuffle order within chunk for extra randomness
     random.shuffle(items)
 
-    for i, item in enumerate(items):
-        pid = item["product_id"]
-        url = item["product_url"]
+    print(f"Chunk {args.chunk}/{args.total_chunks-1}: {len(items)} products | workers={args.workers}", flush=True)
+    print(f"Output: {output_file}", flush=True)
 
-        human_delay()
+    # Stagger start to avoid all 20 chunks hitting simultaneously
+    stagger = random.uniform(0, 20)
+    print(f"Stagger: {stagger:.1f}s", flush=True)
+    time.sleep(stagger)
 
-        html = fetch(url)
-        if not html:
-            fail += 1
-            print(f"  [{i+1}/{len(items)}] FAIL {pid}", flush=True)
-            results.append({"product_id": pid, "product_url": url, "_status": "fail"})
-            continue
+    task_q   = queue.Queue()
+    results  = []
+    res_lock = threading.Lock()
+    stats    = {"ok": 0, "fail": 0, "done": 0}
 
-        try:
-            data = parse_amazon(html, pid, url)
-            has_data = bool(data.get("bullet_points") or data.get("tech_specs") or data.get("description"))
-            results.append(data)
-            ok += 1
-            bp = len(json.loads(data["bullet_points"])) if data.get("bullet_points") else 0
-            sp = len(json.loads(data["tech_specs"])) if data.get("tech_specs") else 0
-            print(f"  [{i+1}/{len(items)}] OK {pid} | bullets={bp} specs={sp} brand={data.get('brand','')[:20]}", flush=True)
-        except Exception as e:
-            fail += 1
-            print(f"  [{i+1}/{len(items)}] PARSE ERR {pid}: {e}", flush=True)
-            results.append({"product_id": pid, "product_url": url, "_status": "parse_err"})
+    for item in items:
+        task_q.put(item)
 
-        # Save intermediate every 50 products
-        if (i + 1) % 50 == 0:
-            output_file.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"  Saved {len(results)} results so far (ok={ok} fail={fail})", flush=True)
+    def worker():
+        while True:
+            try:
+                item = task_q.get(timeout=5)
+            except queue.Empty:
+                break
+            pid = item["product_id"]
+            url = item["product_url"]
+            human_delay()
+            html = fetch(url)
+            with res_lock:
+                stats["done"] += 1
+                done = stats["done"]
+            if not html:
+                with res_lock:
+                    stats["fail"] += 1
+                results.append({"product_id": pid, "product_url": url, "_status": "fail"})
+                print(f"  [{done}/{len(items)}] FAIL {pid}", flush=True)
+                task_q.task_done()
+                continue
+            try:
+                data = parse_amazon(html, pid, url)
+                with res_lock:
+                    stats["ok"] += 1
+                    results.append(data)
+                bp = len(json.loads(data["bullet_points"])) if data.get("bullet_points") else 0
+                sp = len(json.loads(data["tech_specs"])) if data.get("tech_specs") else 0
+                print(f"  [{done}/{len(items)}] OK {pid} | b={bp} s={sp} brand={data.get('brand','')[:15]}", flush=True)
+            except Exception as e:
+                with res_lock:
+                    stats["fail"] += 1
+                results.append({"product_id": pid, "product_url": url, "_status": "parse_err"})
+                print(f"  [{done}/{len(items)}] ERR {pid}: {e}", flush=True)
+            task_q.task_done()
 
-    # Final save
+            # Save every 100 products
+            with res_lock:
+                if stats["done"] % 100 == 0:
+                    output_file.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"  >> Saved {stats['done']} (ok={stats['ok']} fail={stats['fail']})", flush=True)
+
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(args.workers)]
+    for t in threads:
+        t.start()
+    task_q.join()
+
     output_file.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nDONE: ok={ok} fail={fail} total={len(items)}", flush=True)
+    print(f"\nDONE: ok={stats['ok']} fail={stats['fail']} total={len(items)}", flush=True)
     print(f"Output: {output_file} ({output_file.stat().st_size/1024:.0f} KB)", flush=True)
 
 

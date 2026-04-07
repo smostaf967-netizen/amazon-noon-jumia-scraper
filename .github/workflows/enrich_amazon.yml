@@ -36,6 +36,7 @@ jobs:
           python amazon_enricher_gh.py \
             --chunk ${{ matrix.chunk }} \
             --total-chunks ${{ github.event.inputs.total_chunks || '20' }} \
+            --workers 8 \
             --input amazon_enrich_urls.json \
             --output enriched_chunk_${{ matrix.chunk }}.json
 
